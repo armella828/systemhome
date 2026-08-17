@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es-PY">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYSTEMHOME - Sistema Integral de Seguridad y Gestión</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS (GPS Map) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- App Stylesheet -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <!-- ==================== LOGIN / REGISTRO ==================== -->
+    <div class="login-page" id="loginPage">
+        <div class="login-bg"></div>
+        <div class="login-container-centered">
+            <!-- Logo central superior -->
+            <div class="login-brand-centered">
+                <div class="login-logo-area">
+                    <div class="login-logo" id="loginLogoDisplay">
+                        <img src="assets/LOGO.png" alt="SYSTEMHOME" onerror="this.onerror=null; this.src='assets/logo.svg'">
+                    </div>
+                </div>
+                <h1 class="login-title">SYSTEMHOME SECURITY</h1>
+                <p class="login-subtitle">Sistema de Control y Monitoreo</p>
+            </div>
+
+            <!-- Access Cards -->
+            <div class="login-access">
+                <!-- ============ LOGIN FORM ============ -->
+                <div class="login-access-card" id="loginFormContainer">
+                    <div class="login-welcome">
+                        <h2>INICIO DE SESIÓN</h2>
+                        <p>Ingrese sus credenciales para acceder</p>
+                    </div>
+
+                    <form id="loginForm" onsubmit="return Auth.handleLogin(event)">
+                        <div class="form-group form-group-icon">
+                            <label for="loginUsername">Nombre de Usuario</label>
+                            <div class="input-wrapper">
+                                <span class="input-icon">👤</span>
+                                <input type="text" id="loginUsername" class="form-control form-control-icon" placeholder="Nombre de Usuario"
+                                    required autocomplete="username">
+                            </div>
+                        </div>
+                        <div class="form-group form-group-icon">
+                            <label for="loginPassword">Contraseña</label>
+                            <div class="input-wrapper">
+                                <span class="input-icon">🔐</span>
+                                <input type="password" id="loginPassword" class="form-control form-control-icon" placeholder="Contraseña"
+                                    required autocomplete="current-password">
+                            </div>
+                        </div>
+                        <div id="loginError" class="login-error" style="display:none;"></div>
+                        <button type="submit" class="login-btn login-btn-admin" id="loginSubmitBtn">
+                            <span class="login-btn-text">
+                                <strong>INGRESAR</strong>
+                            </span>
+                        </button>
+                    </form>
+
+                    <div class="login-register-link">
+                        <p><a href="#" onclick="event.preventDefault(); alert('Función de recuperación de contraseña en desarrollo')">¿Olvidó su contraseña?</a></p>
+                        <p style="margin-top: 8px;"><a href="#" onclick="Auth.showRegister(); return false;">Crear una cuenta</a></p>
+                    </div>
+
+                    <div class="login-footer-text">
+                        <p>SystemHome Security</p>
+                    </div>
+                </div>
+
+                <!-- ============ REGISTER FORM ============ -->
+                <div class="login-access-card" id="registerFormContainer" style="display:none;">
+                    <div class="login-welcome">
+                        <h2>Registro de Cliente</h2>
+                        <p>Cree su cuenta para solicitar cotizaciones y compras en línea</p>
+                    </div>
+
+                    <form id="registerForm" onsubmit="return Auth.handleRegister(event)">
+                        <div class="form-group">
+                            <label for="regName">Nombre Completo / Razón Social</label>
+                            <input type="text" id="regName" class="form-control" placeholder="Ej: María Gómez" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="regEmail">Correo Electrónico</label>
+                            <input type="email" id="regEmail" class="form-control" placeholder="cliente@ejemplo.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="regPhone">Teléfono / WhatsApp</label>
+                            <input type="text" id="regPhone" class="form-control" placeholder="0981 123 456">
+                        </div>
+                        <div class="form-group">
+                            <label for="regUsername">Nombre de Usuario</label>
+                            <input type="text" id="regUsername" class="form-control"
+                                placeholder="Elija un nombre de usuario único" required autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="regPassword">Contraseña</label>
+                            <input type="password" id="regPassword" class="form-control"
+                                placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="new-password">
+                        </div>
+                        <div class="form-group">
+                            <label for="regConfirmPassword">Confirmar Contraseña</label>
+                            <input type="password" id="regConfirmPassword" class="form-control"
+                                placeholder="Repita la contraseña" required autocomplete="new-password">
+                        </div>
+                        <div id="registerError" class="login-error" style="display:none;"></div>
+                        <button type="submit" class="login-btn login-btn-client" id="registerSubmitBtn"
+                            style="width:100%;justify-content:center;border:none;cursor:pointer;">
+                            <span class="login-btn-text">
+                                <strong>Crear Mi Cuenta</strong>
+                            </span>
+                        </button>
+                    </form>
+
+                    <div class="login-register-link">
+                        <p>¿Ya tienes cuenta? <a href="#" onclick="Auth.showLogin(); return false;">Inicia sesión aquí</a></p>
+                    </div>
+
+                    <div class="login-footer-text">
+                        <p>SystemHome Security</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== ADMIN & OPERATIONAL PORTAL ==================== -->
+    <div class="app-container" id="adminPortal" style="display:none;">
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="logo-placeholder"><img src="assets/LOGO.png" alt="SYSTEMHOME" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'32\' height=\'32\' viewBox=\'0 0 24 24\' fill=\'%231a56db\'><path d=\'M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2z\'/></svg>'"></div>
+                <div class="brand-text">
+                    <h1>SYSTEMHOME</h1>
+                    <span id="sidebarPortalLabel">Panel de Gestión</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav" id="sidebarNav">
+                <div class="nav-section">Principal</div>
+                <a class="nav-item active" data-view="dashboard" title="Dashboard">
+                    <span class="nav-icon">📊</span> Dashboard
+                </a>
+
+                <div class="nav-section" data-section="commercial">Comercial & Clientes</div>
+                <a class="nav-item" data-view="clients" title="Gestión de Clientes e Historial">
+                    <span class="nav-icon">👥</span> Clientes
+                </a>
+                <a class="nav-item" data-view="requests" title="Solicitudes de Cotización">
+                    <span class="nav-icon">📝</span> Solicitudes
+                </a>
+                <a class="nav-item" data-view="budgets" title="Cotizaciones y Presupuestos">
+                    <span class="nav-icon">📋</span> Cotizaciones
+                </a>
+                <a class="nav-item" data-view="sales" title="Ventas, Cobros y Facturación">
+                    <span class="nav-icon">💰</span> Ventas & Cobros
+                </a>
+                <a class="nav-item" data-view="warranties" title="Control de Garantías">
+                    <span class="nav-icon">🛡️</span> Garantías
+                </a>
+
+                <div class="nav-section" data-section="operations">Operaciones Técnicas</div>
+                <a class="nav-item" data-view="workorders" title="Órdenes de Trabajo y Cierre">
+                    <span class="nav-icon">🔧</span> Órdenes de Trabajo
+                </a>
+                <a class="nav-item" data-view="inventory" title="Inventario, Stock y Movimientos">
+                    <span class="nav-icon">📦</span> Inventario & Stock
+                </a>
+                <a class="nav-item" data-view="maintenances" title="Programación de Mantenimientos">
+                    <span class="nav-icon">🛠️</span> Mantenimientos
+                </a>
+                <a class="nav-item" data-view="alerts" title="Alertas de Stock y Servicios">
+                    <span class="nav-icon">🔔</span> Alertas
+                </a>
+
+                <div class="nav-section" data-section="admin-only">Análisis & Auditoría</div>
+                <a class="nav-item" data-view="reports" title="Reportes y Métricas">
+                    <span class="nav-icon">📈</span> Reportes
+                </a>
+                <a class="nav-item" data-view="audit" title="Registro de Auditoría">
+                    <span class="nav-icon">📜</span> Auditoría
+                </a>
+
+                <div class="nav-section" data-section="system-only">Sistema & Seguridad</div>
+                <a class="nav-item" data-view="backup" title="Copias de Seguridad (Backup)">
+                    <span class="nav-icon">💾</span> Copias de Seguridad
+                </a>
+                <a class="nav-item" data-view="users" title="Gestión de Usuarios">
+                    <span class="nav-icon">🔐</span> Usuarios
+                </a>
+                <a class="nav-item" data-view="settings" title="Configuración de Perfil">
+                    <span class="nav-icon">⚙️</span> Configuración
+                </a>
+                <a class="nav-item" data-view="notifications" title="Notificaciones">
+                    <span class="nav-icon">🔔</span> Notificaciones
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-user-info" id="sidebarUserInfo">
+                    <div class="user-avatar-sm" id="sidebarUserAvatar">A</div>
+                    <div class="user-meta">
+                        <div class="user-name" id="sidebarUserName">Administrador</div>
+                        <div class="user-role-badge" id="sidebarUserRole">admin</div>
+                    </div>
+                </div>
+                <a class="nav-item" style="color:#ef4444;border-left-color:transparent;cursor:pointer;" onclick="Auth.logout()"
+                    title="Cerrar sesión">
+                    <span class="nav-icon">🚪</span> Cerrar Sesión
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="header">
+                <div class="header-left">
+                    <button class="header-btn" id="menuToggle" title="Menú" onclick="App.toggleSidebar()">☰</button>
+                    <h2 id="headerTitle">Panel de Control</h2>
+                    <span class="breadcrumb" id="breadcrumb">Inicio / Dashboard</span>
+                </div>
+                <div class="header-right">
+                    <button class="header-btn-refresh" id="globalRefreshBtn" title="Actualizar datos del módulo actual" onclick="App.refreshCurrentView()">
+                        🔄 <span class="refresh-text">Actualizar</span>
+                    </button>
+                    <button class="header-btn" title="Notificaciones" onclick="App.navigate('notifications')">
+                        🔔
+                        <span class="notif-dot" id="headerNotifDot" style="display:none;"></span>
+                    </button>
+                    <div class="user-info" onclick="App.navigate('settings')" style="cursor:pointer;" title="Mi Perfil">
+                        <div class="user-avatar" id="headerUserAvatar">A</div>
+                        <div class="user-details">
+                            <div class="name" id="headerUserName">Administrador</div>
+                            <div class="role" id="headerUserRole">SYSTEMHOME</div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-content">
+                <section class="view-section active" id="dashboard-view"></section>
+                <section class="view-section" id="clients-view"></section>
+                <section class="view-section" id="requests-view"></section>
+                <section class="view-section" id="budgets-view"></section>
+                <section class="view-section" id="sales-view"></section>
+                <section class="view-section" id="warranties-view"></section>
+                <section class="view-section" id="workorders-view"></section>
+                <section class="view-section" id="inventory-view"></section>
+                <section class="view-section" id="maintenances-view"></section>
+                <section class="view-section" id="alerts-view"></section>
+                <section class="view-section" id="reports-view"></section>
+                <section class="view-section" id="audit-view"></section>
+                <section class="view-section" id="backup-view"></section>
+                <section class="view-section" id="users-view"></section>
+                <section class="view-section" id="settings-view"></section>
+                <section class="view-section" id="notifications-view"></section>
+            </div>
+        </main>
+    </div>
+
+    <!-- ==================== CLIENT PORTAL ==================== -->
+    <div class="client-portal" id="clientPortal" style="display:none;">
+
+        <!-- Client Header -->
+        <header class="client-header">
+            <div class="client-header-inner">
+                <div class="client-header-left">
+                    <div class="client-logo-mini"><img src="assets/LOGO.png" alt="SYSTEMHOME" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'28\' height=\'28\' viewBox=\'0 0 24 24\' fill=\'%231a56db\'><path d=\'M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2z\'/></svg>'"></div>
+                    <div class="client-header-title">
+                        <h1>SYSTEMHOME</h1>
+                        <span>Portal del Cliente</span>
+                    </div>
+                </div>
+                <div class="client-header-right">
+                    <div class="client-user-badge" id="clientUserBadge">
+                        <span id="clientUserNameDisplay">Usuario</span>
+                    </div>
+                    <button class="client-nav-btn active" data-clientview="welcome"
+                        onclick="ClientPortal.navigate('welcome')">🏠 Inicio</button>
+                    <button class="client-nav-btn" data-clientview="catalog"
+                        onclick="ClientPortal.navigate('catalog')">📦 Catálogo</button>
+                    <button class="client-nav-btn" data-clientview="cart" id="clientCartNavBtn"
+                        onclick="ClientPortal.navigate('cart')">🛒 Carrito <span class="cart-nav-badge" id="cartNavCount">0</span></button>
+                    <button class="client-nav-btn" data-clientview="requests"
+                        onclick="ClientPortal.navigate('requests')">📝 Solicitar Cotización</button>
+                    <button class="client-nav-btn" data-clientview="quotes"
+                        onclick="ClientPortal.navigate('quotes')">📋 Mis Cotizaciones</button>
+                    <button class="client-nav-btn" data-clientview="services"
+                        onclick="ClientPortal.navigate('services')">🔧 Mis Servicios & Compras</button>
+                    <button class="client-nav-btn" data-clientview="location"
+                        onclick="ClientPortal.navigate('location')">📍 Mi Ubicación</button>
+                    <button class="client-nav-btn" data-clientview="notifications"
+                        onclick="ClientPortal.navigate('notifications')">🔔 Notificaciones</button>
+                    <button class="client-nav-btn client-btn-logout" onclick="Auth.logout()">🚪 Salir</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Client Content Sections -->
+        <div class="client-content">
+            <section class="client-section active" id="client-welcome-view"></section>
+            <section class="client-section" id="client-catalog-view"></section>
+            <section class="client-section" id="client-cart-view"></section>
+            <section class="client-section" id="client-requests-view"></section>
+            <section class="client-section" id="client-quotes-view"></section>
+            <section class="client-section" id="client-services-view"></section>
+            <section class="client-section" id="client-location-view"></section>
+            <section class="client-section" id="client-notifications-view"></section>
+        </div>
+
+        <!-- Client Footer -->
+        <footer class="client-footer">
+            <div class="client-footer-inner">
+                <p>© 2026 SYSTEMHOME Security · Soluciones Integrales en Seguridad Electrónica y Climatización</p>
+                <p>📷 Cámaras · ❄️ Aire Acondicionado · 🔔 Alarmas · ⚡ Cercas Eléctricas · 📺 Video Portero · 🔌 Electricidad · 🌐 Redes e Internet</p>
+                <p>WhatsApp Oficial: <strong>+591 64595762</strong></p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- ==================== FLOATING WHATSAPP BUTTON ==================== -->
+    <a href="https://wa.me/59164595762?text=Hola%20SYSTEMHOME,%20deseo%20consultar%20sobre%20sus%20servicios%20y%20productos."
+       target="_blank" rel="noopener noreferrer" class="floating-whatsapp-btn" id="floatingWhatsappBtn" title="Contactar por WhatsApp (+591 64595762)">
+        <svg viewBox="0 0 32 32" class="wa-icon">
+            <path fill="currentColor" d="M16 2a13.9 13.9 0 0 0-12 20.8L2 30l7.4-1.9A13.9 13.9 0 1 0 16 2zm0 25.5c-2.3 0-4.5-.6-6.4-1.8l-.5-.3-4.4 1.1 1.2-4.3-.3-.5A11.5 11.5 0 1 1 27.5 16 11.5 11.5 0 0 1 16 27.5zm6.3-8.6c-.3-.2-2-.9-2.3-1-.3-.1-.5-.2-.7.2s-.8 1-.9 1.2-.4.2-.7.1a9.2 9.2 0 0 1-2.7-1.7 10.2 10.2 0 0 1-1.9-2.3c-.2-.3 0-.5.1-.7l.5-.6.3-.5c.1-.2 0-.4 0-.5s-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4s-1.2 1.2-1.2 2.9 1.2 3.4 1.4 3.6 2.4 3.7 5.8 5.1c.8.3 1.4.5 1.9.7.8.3 1.6.2 2.2.1.7-.1 2-.8 2.3-1.6.3-.8.3-1.5.2-1.6s-.3-.2-.6-.4z"/>
+        </svg>
+        <span class="wa-label">WhatsApp</span>
+    </a>
+
+    <!-- Leaflet JS (Mapas GPS) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- App Modules and Scripts -->
+    <script src="js/data.js"></script>
+    <script src="js/modules/clients.js"></script>
+    <script src="js/modules/requests.js"></script>
+    <script src="js/modules/budgets.js"></script>
+    <script src="js/modules/sales.js"></script>
+    <script src="js/modules/warranties.js"></script>
+    <script src="js/modules/workorders.js"></script>
+    <script src="js/modules/inventory.js"></script>
+    <script src="js/modules/maintenances.js"></script>
+    <script src="js/modules/alerts.js"></script>
+    <script src="js/modules/reports.js"></script>
+    <script src="js/modules/audit.js"></script>
+    <script src="js/modules/backup.js"></script>
+    <script src="js/modules/notifications.js"></script>
+    <script src="js/modules/client-portal.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>

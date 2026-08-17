@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <rect width="400" height="400" rx="60" fill="#0f172a"/>
+  <rect x="70" y="70" width="260" height="260" rx="40" fill="#1d4ed8"/>
+  <path d="M135 220 L200 135 L265 220" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="175" y="170" width="50" height="95" rx="12" fill="#ffffff"/>
+  <circle cx="200" cy="150" r="18" fill="#fbbf24"/>
+  <text x="200" y="330" font-family="Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle" fill="#ffffff">SYSTEMHOME</text>
+</svg>
