@@ -3,7 +3,7 @@
    ============================================================ */
 
 const DB = {
-  _baseUrl: '/api',
+  _baseUrl: (window.API_BASE_URL || localStorage.getItem('sh_api_url') || '/api').replace(/\/$/, ''),
   _token: null,
 
   _getToken() {

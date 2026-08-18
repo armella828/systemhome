@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: systemhome-security
+    name: systemhome-backend
     runtime: node
     plan: free
     buildCommand: npm install
@@ -8,7 +8,18 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: JWT_SECRET
-        generateValue: true
       - key: PORT
         value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+

@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "name": "systemhome",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://TU-BACKEND-EN-RENDER.onrender.com/api/$1"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "https://TU-BACKEND-EN-RENDER.onrender.com/uploads/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/systemhome/$1"
+    }
+  ]
+}

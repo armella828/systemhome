@@ -8,12 +8,28 @@ const PDFDocument = require('pdfkit');
 require('dotenv').config();
 
 const { db, initSchema, seedData, all, get, run } = require('./db');
+const { isCloudinaryConfigured, uploadBase64, saveUploadedFile } = require('./cloudinary');
 
 const app = express();
 const port = process.env.PORT || 3000;
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-systemhome-2026';
 
-app.use(cors({ origin: true, credentials: true }));
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.onrender.com')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permite acceso para desarrollo y pruebas
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
@@ -966,29 +982,54 @@ app.put('/api/requests/:id', authMiddleware, requireRole(['admin', 'vendedor']),
   res.json({ request: formatRequest(updated) });
 });
 
-app.post('/api/requests/:id/files', authMiddleware, (req, res) => {
-  const requestId = Number(req.params.id);
-  const requestRow = db.prepare('SELECT * FROM requests WHERE id = ?').get(requestId);
-  if (!requestRow) return res.status(404).json({ error: 'Solicitud no encontrada' });
+app.post('/api/requests/:id/files', authMiddleware, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id);
+    const requestRow = db.prepare('SELECT * FROM requests WHERE id = ?').get(requestId);
+    if (!requestRow) return res.status(404).json({ error: 'Solicitud no encontrada' });
 
-  const { filename, mimeType, data } = req.body;
-  if (!filename || !data) return res.status(400).json({ error: 'Archivo no recibido' });
+    const { filename, mimeType, data } = req.body;
+    if (!filename || !data) return res.status(400).json({ error: 'Archivo no recibido' });
 
-  const reqDir = path.join(UPLOAD_DIR, 'requests', String(requestId));
-  if (!fs.existsSync(reqDir)) fs.mkdirSync(reqDir, { recursive: true });
-  const safeName = `${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-  const filePath = path.join(reqDir, safeName);
-  fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+    let fileUrl;
+    let fileSize = Buffer.byteLength(data, 'base64');
 
-  const now = new Date().toISOString();
-  const fileUrl = `/uploads/requests/${requestId}/${safeName}`;
-  const result = db.prepare(`
-    INSERT INTO request_files (request_id, filename, filepath, mime_type, size, uploaded_at, uploaded_by_user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(requestId, filename, fileUrl, mimeType || 'application/octet-stream', Buffer.byteLength(data, 'base64'), now, req.user.id);
+    if (isCloudinaryConfigured) {
+      try {
+        const dataUri = data.startsWith('data:') ? data : `data:${mimeType || 'application/octet-stream'};base64,${data}`;
+        const uploadRes = await uploadBase64(dataUri, { folder: `systemhome/requests/${requestId}` });
+        fileUrl = uploadRes.secure_url;
+        fileSize = uploadRes.bytes || fileSize;
+      } catch (uploadErr) {
+        console.error('Error subiendo archivo a Cloudinary:', uploadErr);
+        const reqDir = path.join(UPLOAD_DIR, 'requests', String(requestId));
+        if (!fs.existsSync(reqDir)) fs.mkdirSync(reqDir, { recursive: true });
+        const safeName = `${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        const filePath = path.join(reqDir, safeName);
+        fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+        fileUrl = `/uploads/requests/${requestId}/${safeName}`;
+      }
+    } else {
+      const reqDir = path.join(UPLOAD_DIR, 'requests', String(requestId));
+      if (!fs.existsSync(reqDir)) fs.mkdirSync(reqDir, { recursive: true });
+      const safeName = `${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const filePath = path.join(reqDir, safeName);
+      fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+      fileUrl = `/uploads/requests/${requestId}/${safeName}`;
+    }
 
-  const file = db.prepare('SELECT * FROM request_files WHERE id = ?').get(result.lastInsertRowid);
-  res.status(201).json({ file });
+    const now = new Date().toISOString();
+    const result = db.prepare(`
+      INSERT INTO request_files (request_id, filename, filepath, mime_type, size, uploaded_at, uploaded_by_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(requestId, filename, fileUrl, mimeType || 'application/octet-stream', fileSize, now, req.user.id);
+
+    const file = db.prepare('SELECT * FROM request_files WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ file });
+  } catch (err) {
+    console.error('Error al procesar archivo:', err);
+    res.status(500).json({ error: 'Error interno al guardar archivo' });
+  }
 });
 
 // ============================================================
@@ -1705,33 +1746,59 @@ app.put('/api/inventory/:id', authMiddleware, requireRole(['admin', 'vendedor'])
   res.json({ inventoryItem: formatInventoryItem(item) });
 });
 
-app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vendedor']), (req, res) => {
-  const itemId = Number(req.params.id);
-  const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
-  if (!item) return res.status(404).json({ error: 'Producto no encontrado' });
+app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vendedor']), async (req, res) => {
+  try {
+    const itemId = Number(req.params.id);
+    const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
+    if (!item) return res.status(404).json({ error: 'Producto no encontrado' });
 
-  const { filename, data, imageUrl } = req.body;
-  
-  if (imageUrl) {
-    db.prepare('UPDATE inventory_items SET image_url = ?, updated_at = ? WHERE id = ?').run(imageUrl.trim(), new Date().toISOString(), itemId);
+    const { filename, data, imageUrl } = req.body;
+    
+    if (imageUrl) {
+      db.prepare('UPDATE inventory_items SET image_url = ?, updated_at = ? WHERE id = ?').run(imageUrl.trim(), new Date().toISOString(), itemId);
+      const updated = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
+      return res.json({ inventoryItem: formatInventoryItem(updated) });
+    }
+
+    if (!filename || !data) return res.status(400).json({ error: 'Imagen no recibida' });
+
+    let finalImageUrl;
+    let imagePath = null;
+
+    if (isCloudinaryConfigured) {
+      try {
+        const dataUri = data.startsWith('data:') ? data : `data:image/jpeg;base64,${data}`;
+        const uploadRes = await uploadBase64(dataUri, { folder: 'systemhome/inventory' });
+        finalImageUrl = uploadRes.secure_url;
+        imagePath = uploadRes.public_id;
+      } catch (uploadErr) {
+        console.error('Error subiendo imagen a Cloudinary:', uploadErr);
+        const invDir = path.join(UPLOAD_DIR, 'inventory');
+        if (!fs.existsSync(invDir)) fs.mkdirSync(invDir, { recursive: true });
+        const safeName = `${itemId}-${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        const savePath = path.join(invDir, safeName);
+        fs.writeFileSync(savePath, Buffer.from(data, 'base64'));
+        imagePath = `inventory/${safeName}`;
+        finalImageUrl = `/uploads/${imagePath}`;
+      }
+    } else {
+      const invDir = path.join(UPLOAD_DIR, 'inventory');
+      if (!fs.existsSync(invDir)) fs.mkdirSync(invDir, { recursive: true });
+      const safeName = `${itemId}-${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const savePath = path.join(invDir, safeName);
+      fs.writeFileSync(savePath, Buffer.from(data, 'base64'));
+      imagePath = `inventory/${safeName}`;
+      finalImageUrl = `/uploads/${imagePath}`;
+    }
+
+    db.prepare('UPDATE inventory_items SET image_path = ?, image_url = ?, updated_at = ? WHERE id = ?').run(imagePath, finalImageUrl, new Date().toISOString(), itemId);
+
     const updated = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
-    return res.json({ inventoryItem: formatInventoryItem(updated) });
+    res.json({ inventoryItem: formatInventoryItem(updated) });
+  } catch (err) {
+    console.error('Error al procesar imagen de inventario:', err);
+    res.status(500).json({ error: 'Error interno al guardar imagen' });
   }
-
-  if (!filename || !data) return res.status(400).json({ error: 'Imagen no recibida' });
-
-  const invDir = path.join(UPLOAD_DIR, 'inventory');
-  if (!fs.existsSync(invDir)) fs.mkdirSync(invDir, { recursive: true });
-  const safeName = `${itemId}-${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-  const savePath = path.join(invDir, safeName);
-  fs.writeFileSync(savePath, Buffer.from(data, 'base64'));
-
-  const imagePath = `inventory/${safeName}`;
-  const finalImageUrl = `/uploads/${imagePath}`;
-  db.prepare('UPDATE inventory_items SET image_path = ?, image_url = ?, updated_at = ? WHERE id = ?').run(imagePath, finalImageUrl, new Date().toISOString(), itemId);
-
-  const updated = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
-  res.json({ inventoryItem: formatInventoryItem(updated) });
 });
 
 app.delete('/api/inventory/:id', authMiddleware, requireRole(['admin']), (req, res) => {

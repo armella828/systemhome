@@ -72,4 +72,5 @@ htmlcov/
 # Directorios no relacionados con SYSTEMHOME
 newcpuspeedcheck/
 uploads/
+backend/uploads/
 LOGO.png.jpeg
