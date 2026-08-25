@@ -1,21 +1,111 @@
 /* ============================================================
    SYSTEMHOME - Portal del Cliente
    Bienvenida con logo, catálogo de productos/servicios,
-   y solicitudes de servicio
+   carrito de compras y solicitudes de servicio
    ============================================================ */
 
 const ClientPortal = {
     currentView: 'welcome',
+    cartItems: [],
 
     init() {
+        this.loadCart();
         this.render();
     },
 
+    // ============================================================
+    // CART STATE MANAGEMENT (localStorage)
+    // ============================================================
+    loadCart() {
+        try {
+            const stored = localStorage.getItem('sh_cart');
+            this.cartItems = stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            this.cartItems = [];
+        }
+    },
+
+    saveCart() {
+        localStorage.setItem('sh_cart', JSON.stringify(this.cartItems));
+        this.updateCartBadge();
+    },
+
+    addToCart(item) {
+        const existing = this.cartItems.find(c => c.id === item.id);
+        if (existing) {
+            existing.quantity += 1;
+        } else {
+            this.cartItems.push({
+                id: item.id,
+                name: item.name,
+                price: item.price || 0,
+                stock: item.stock || 0,
+                imageUrl: item.imageUrl || null,
+                category: item.category || 'otro',
+                quantity: 1
+            });
+        }
+        this.saveCart();
+        App.showToast(`${item.name} agregado al carrito`, 'success');
+    },
+
+    removeFromCart(itemId) {
+        this.cartItems = this.cartItems.filter(c => c.id !== itemId);
+        this.saveCart();
+        if (this.currentView === 'cart') this.renderCart();
+    },
+
+    updateCartQty(itemId, delta) {
+        const item = this.cartItems.find(c => c.id === itemId);
+        if (!item) return;
+        item.quantity += delta;
+        if (item.quantity <= 0) {
+            this.removeFromCart(itemId);
+            return;
+        }
+        if (item.quantity > item.stock) {
+            item.quantity = item.stock;
+            App.showToast(`Stock máximo: ${item.stock} unidades`, 'warning');
+        }
+        this.saveCart();
+        if (this.currentView === 'cart') this.renderCart();
+    },
+
+    clearCart() {
+        if (this.cartItems.length === 0) return;
+        if (!confirm('¿Vaciar el carrito completamente?')) return;
+        this.cartItems = [];
+        this.saveCart();
+        this.renderCart();
+    },
+
+    getCartTotal() {
+        return this.cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    },
+
+    getCartCount() {
+        return this.cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    },
+
+    updateCartBadge() {
+        const badge = document.getElementById('cartNavCount');
+        if (badge) {
+            const count = this.getCartCount();
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+    },
+
+    // ============================================================
+    // NAVIGATION
+    // ============================================================
     render() {
         this.renderWelcome();
         this.renderCatalog();
+        this.renderCart();
         this.renderRequests();
         this.renderQuotes();
+        this.updateCartBadge();
     },
 
     navigate(view) {
@@ -27,6 +117,8 @@ const ClientPortal = {
         document.querySelectorAll('.client-nav-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.clientview === view);
         });
+
+        if (view === 'cart') this.renderCart();
     },
 
     refresh() {
@@ -35,6 +127,9 @@ const ClientPortal = {
         App.showToast('✅ Datos actualizados', 'success');
     },
 
+    // ============================================================
+    // WELCOME
+    // ============================================================
     renderWelcome() {
         const container = document.getElementById('client-welcome-view');
         if (!container) return;
@@ -56,7 +151,7 @@ const ClientPortal = {
                     📞 <strong>64595762</strong>
                 </a>
                 <button class="btn btn-secondary" onclick="ClientPortal.navigate('catalog')" style="gap:8px;">
-                    🛒 Ver Catálogo
+                    📦 Ver Catálogo
                 </button>
                 <button class="btn btn-secondary" onclick="ClientPortal.refresh()" style="gap:8px;" title="Actualizar datos">
                     🔄 Actualizar
@@ -109,11 +204,13 @@ const ClientPortal = {
         `;
     },
 
+    // ============================================================
+    // CATALOG
+    // ============================================================
     renderCatalog() {
         const container = document.getElementById('client-catalog-view');
         if (!container) return;
 
-        // Get catalog from inventory (admin-controlled)
         const catalog = DB.getCatalog();
 
         const categories = [
@@ -187,7 +284,16 @@ const ClientPortal = {
                 <div class="item-desc">${this.escapeHtml(item.description || '')}</div>
                 <div class="item-price">${DB.formatCurrency(item.price || 0)}</div>
                 <div class="item-cta">
-                    <button class="btn btn-sm btn-primary" onclick="ClientPortal.requestProduct('${this.escapeHtml(item.name)}')">
+                    ${item.stock > 0 ? `
+                    <button class="btn btn-sm btn-primary" onclick="ClientPortal.addToCart(${JSON.stringify({id:item.id,name:item.name,price:item.price,stock:item.stock,imageUrl:item.imageUrl,category:item.category}).replace(/"/g,'&quot;')})">
+                        🛒 Agregar al Carrito
+                    </button>
+                    ` : `
+                    <button class="btn btn-sm" disabled style="opacity:0.5;cursor:not-allowed;">
+                        Sin Stock
+                    </button>
+                    `}
+                    <button class="btn btn-sm btn-secondary" onclick="ClientPortal.requestProduct('${this.escapeHtml(item.name)}')" style="margin-top:4px;">
                         📝 Solicitar Cotización
                     </button>
                 </div>
@@ -198,7 +304,6 @@ const ClientPortal = {
 
     requestProduct(productName) {
         this.navigate('requests');
-        // Pre-fill the description
         const desc = document.getElementById('clientRequestDesc');
         if (desc) {
             desc.value = `Cotización para: ${productName}\n\n`;
@@ -207,6 +312,121 @@ const ClientPortal = {
         App.showToast(`Cotización solicitada para: ${productName}`, 'info');
     },
 
+    // ============================================================
+    // CART
+    // ============================================================
+    renderCart() {
+        const container = document.getElementById('client-cart-view');
+        if (!container) return;
+
+        if (this.cartItems.length === 0) {
+            container.innerHTML = `
+            <div class="cart-empty">
+                <div class="cart-empty-icon">🛒</div>
+                <h3 style="margin-bottom:8px;">Tu carrito está vacío</h3>
+                <p style="margin-bottom:16px;">Agrega productos desde nuestro catálogo para comenzar tu compra.</p>
+                <button class="btn btn-primary" onclick="ClientPortal.navigate('catalog')">📦 Ver Catálogo</button>
+            </div>
+            `;
+            return;
+        }
+
+        const total = this.getCartTotal();
+        const count = this.getCartCount();
+
+        const categoryIcons = {
+            camara: '📷', alarma: '🔔', ac: '❄️', cerca: '⚡',
+            video: '📺', cable: '🔌', accesorio: '🔧', herramienta: '🛠️', otro: '📦'
+        };
+
+        container.innerHTML = `
+        <div style="margin-bottom:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <h2 style="font-size:22px;font-weight:700;color:var(--gray-900);">🛒 Mi Carrito</h2>
+                    <p style="font-size:14px;color:var(--gray-500);margin-top:4px;">
+                        ${count} ${count === 1 ? 'producto' : 'productos'} en tu carrito
+                    </p>
+                </div>
+                <button class="btn btn-sm btn-danger" onclick="ClientPortal.clearCart()">🗑️ Vaciar Carrito</button>
+            </div>
+        </div>
+
+        <div class="client-cart-layout">
+            <div class="client-cart-items">
+                ${this.cartItems.map(item => `
+                <div class="client-cart-item">
+                    <div class="cart-item-img">
+                        ${item.imageUrl ? 
+                            `<img src="${item.imageUrl}" alt="${this.escapeHtml(item.name)}">` :
+                            `${categoryIcons[item.category] || '📦'}`
+                        }
+                    </div>
+                    <div class="cart-item-info">
+                        <h4>${this.escapeHtml(item.name)}</h4>
+                        <div class="cart-item-price">${DB.formatCurrency(item.price)} × ${item.quantity}</div>
+                    </div>
+                    <div class="cart-item-qty">
+                        <button class="btn-qty" onclick="ClientPortal.updateCartQty(${item.id}, -1)">−</button>
+                        <span class="qty-number">${item.quantity}</span>
+                        <button class="btn-qty" onclick="ClientPortal.updateCartQty(${item.id}, 1)">+</button>
+                    </div>
+                    <div class="cart-item-subtotal">${DB.formatCurrency(item.price * item.quantity)}</div>
+                    <button class="btn-item-remove" onclick="ClientPortal.removeFromCart(${item.id})" title="Eliminar">✕</button>
+                </div>
+                `).join('')}
+            </div>
+
+            <div class="cart-summary">
+                <h3>📋 Resumen del Pedido</h3>
+                <div class="cart-summary-row">
+                    <span>Productos (${count})</span>
+                    <span>${DB.formatCurrency(total)}</span>
+                </div>
+                <div class="cart-summary-row">
+                    <span>Envío</span>
+                    <span style="color:var(--success);font-weight:600;">A coordinar</span>
+                </div>
+                <div class="cart-summary-row cart-total">
+                    <span>TOTAL</span>
+                    <span>${DB.formatCurrency(total)}</span>
+                </div>
+
+                <div class="cart-actions">
+                    <a href="https://wa.me/59164595762?text=${encodeURIComponent(this.buildWhatsAppMessage())}" 
+                       target="_blank" rel="noopener noreferrer"
+                       class="btn btn-success" style="width:100%;justify-content:center;gap:8px;padding:12px;font-size:15px;">
+                        📱 Comprar por WhatsApp
+                    </a>
+                    <button class="btn btn-primary" onclick="ClientPortal.navigate('catalog')" style="width:100%;justify-content:center;gap:8px;padding:12px;">
+                        📦 Seguir Comprando
+                    </button>
+                </div>
+
+                <div style="margin-top:16px;padding:12px;background:var(--gray-50);border-radius:8px;font-size:12px;color:var(--gray-500);text-align:center;">
+                    <p style="margin:0;">📞 ¿Necesitas ayuda? Llámanos al <strong>64595762</strong></p>
+                    <p style="margin:4px 0 0 0;">📱 O escríbenos por <strong>WhatsApp</strong></p>
+                </div>
+            </div>
+        </div>
+        `;
+    },
+
+    buildWhatsAppMessage() {
+        let msg = '🛒 *Pedido SYSTEMHOME*\n\n';
+        msg += '📋 *Productos:*\n';
+        this.cartItems.forEach((item, i) => {
+            msg += `${i + 1}. ${item.name} x${item.quantity} - ${DB.formatCurrency(item.price * item.quantity)}\n`;
+        });
+        msg += `\n💰 *TOTAL: ${DB.formatCurrency(this.getCartTotal())}*\n`;
+        msg += '\n📍 Dirección de entrega: \n';
+        msg += '📌 Referencia: ';
+        return msg;
+    },
+
+    // ============================================================
+    // QUOTES / SOLICITUDES
+    // ============================================================
     renderRequests() {
         const container = document.getElementById('client-requests-view');
         if (!container) return;
@@ -458,12 +678,10 @@ const ClientPortal = {
         if (!service) { App.showToast('Seleccione un tipo de servicio', 'warning'); return; }
         if (!desc) { App.showToast('Describa lo que necesita', 'warning'); return; }
 
-        // Combine address and location into description
         let fullDesc = desc;
         if (address) fullDesc += `\n\n📍 Dirección: ${address}`;
         if (location) fullDesc += `\n🗺️ Ubicación: ${location}`;
 
-        // Create a budget as a client request
         const budget = {
             clientId: null,
             clientName: name,
@@ -481,7 +699,6 @@ const ClientPortal = {
             source: 'client',
         };
 
-        // Create a client record if not exists
         const existingClient = DB.getClients().find(c => c.phone === phone);
         if (!existingClient) {
             DB.addClient({
