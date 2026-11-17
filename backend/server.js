@@ -11,6 +11,7 @@ const { db, initSchema, seedData, all, get, run } = require('./db');
 const { isCloudinaryConfigured, uploadBase64, saveUploadedFile } = require('./cloudinary');
 const recovery = require('./auth-recovery');
 const mailer = require('./mailer');
+const realtime = require('./realtime');
 const intelligence = require('./intelligence');
 
 const app = express();
@@ -83,6 +84,11 @@ function requireRole(roles = []) {
   };
 }
 
+// Server-Sent Events: sincronizacion inmediata con los paneles abiertos
+app.get('/api/events', authMiddleware, (req, res) => {
+  realtime.subscribe(req, res);
+});
+
 function audit(req, action, moduleName, recordType = null, recordId = null, prevState = null, newState = null) {
   try {
     const now = new Date().toISOString();
@@ -106,10 +112,13 @@ function audit(req, action, moduleName, recordType = null, recordId = null, prev
 function notify(userId, type, title, message, data = null) {
   try {
     const now = new Date().toISOString();
-    db.prepare(`
+    const result = db.prepare(`
       INSERT INTO notifications (user_id, type, title, message, data, read, created_at)
       VALUES (?, ?, ?, ?, ?, 0, ?)
     `).run(userId || null, type, title, message, data ? JSON.stringify(data) : null, now);
+    if (userId) {
+      realtime.publish('notification', { id: Number(result.lastInsertRowid) || null, type, title, message, data }, { userIds: [userId] });
+    }
   } catch (e) {
     console.error('Notification error:', e.message);
   }
@@ -117,7 +126,7 @@ function notify(userId, type, title, message, data = null) {
 
 function notifyAdmins(type, title, message, data = null) {
   try {
-    const admins = db.prepare("SELECT id FROM users WHERE role_id = (SELECT id FROM roles WHERE name = 'admin')").all();
+    const admins = db.prepare("SELECT id FROM users WHERE active = 1 AND role_id = (SELECT id FROM roles WHERE name = 'admin')").all();
     admins.forEach(a => notify(a.id, type, title, message, data));
   } catch (e) {
     console.error('Notify admins error:', e.message);
@@ -126,11 +135,42 @@ function notifyAdmins(type, title, message, data = null) {
 
 function notifyRole(roleName, type, title, message, data = null) {
   try {
-    const users = db.prepare("SELECT id FROM users WHERE role_id = (SELECT id FROM roles WHERE name = ?)").all(roleName);
+    const users = db.prepare("SELECT id FROM users WHERE active = 1 AND role_id = (SELECT id FROM roles WHERE name = ?)").all(roleName);
     users.forEach(u => notify(u.id, type, title, message, data));
   } catch (e) {
     console.error('Notify role error:', e.message);
   }
+}
+
+function getRoleEmails(roleNames = []) {
+  try {
+    const marks = roleNames.map(() => '?').join(', ');
+    return db.prepare(`
+      SELECT u.email, r.name as role_name
+      FROM users u JOIN roles r ON r.id = u.role_id
+      WHERE u.active = 1 AND LOWER(r.name) IN (${marks}) AND u.email LIKE '%@%'
+    `).all(...roleNames.map(r => String(r).toLowerCase()));
+  } catch (e) {
+    console.error('getRoleEmails error:', e.message);
+    return [];
+  }
+}
+
+function notifyByEmail(roleNames, subject, buildForRole) {
+  if (!mailer.isConfigured()) return;
+  getRoleEmails(roleNames).forEach(async ({ email, role_name }) => {
+    try {
+      const payload = await buildForRole(email, role_name);
+      if (!payload || payload.sent !== undefined) return; // la función ya envió el correo
+      await mailer.sendMail(email, subject, payload.html || '', payload.text || '', payload.attachments || []);
+    } catch (err) {
+      console.error('Notification email error:', err.message);
+    }
+  });
+}
+
+function publishChange(entity, action, data = {}, filter = {}) {
+  realtime.publishDataChange(entity, action, data, filter);
 }
 
 // Helpers para generación secuencial de códigos
@@ -285,6 +325,11 @@ function formatBudget(b) {
     items: items,
     labor: b.labor || 0,
     discount: b.discount || 0,
+    tax: b.tax || 0,
+    prospectName: b.prospect_name || '',
+    prospectPhone: b.prospect_phone || '',
+    prospectEmail: b.prospect_email || '',
+    prospectRuc: b.prospect_ruc || '',
     total: b.total || 0,
     status: b.status || 'borrador',
     source: b.source || 'internal',
@@ -307,6 +352,196 @@ function formatBudget(b) {
     approvedAt: b.approved_at || null,
     approvedByUserId: b.approved_by_user_id
   };
+}
+
+// Persiste los items tambien en la tabla relacional budget_items.
+function syncBudgetItems(budgetId, items = []) {
+  db.prepare('DELETE FROM budget_items WHERE budget_id = ?').run(budgetId);
+  items.forEach(item => {
+    const qty = Number(item.quantity || item.qty || 1) || 1;
+    const price = Number(item.unit_price || item.unitPrice || item.price || 0) || 0;
+    const discount = Number(item.discountPercent || item.discount_percent || 0) || 0;
+    const subtotal = Number(item.subtotal || (qty * price * (1 - discount / 100))) || 0;
+    db.prepare(`
+      INSERT INTO budget_items (budget_id, concept, quantity, unit_price, discount_percent, notes, subtotal)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(budgetId, String(item.concept || item.name || 'Item'), qty, price, discount, item.notes || '', subtotal);
+  });
+}
+
+function normalizeBudgetItems(items = []) {
+  return (Array.isArray(items) ? items : []).map(item => ({
+    concept: String(item.concept || item.name || 'Item'),
+    qty: Number(item.qty || item.quantity || 1) || 1,
+    quantity: Number(item.quantity || item.qty || 1) || 1,
+    price: Number(item.price || item.unitPrice || item.unit_price || 0) || 0,
+    unitPrice: Number(item.unitPrice || item.price || item.unit_price || 0) || 0,
+    discountPercent: Number(item.discountPercent || item.discount_percent || 0) || 0,
+    notes: String(item.notes || ''),
+    subtotal: Number(item.subtotal || (
+      (Number(item.qty || item.quantity || 1) || 1) *
+      (Number(item.price || item.unitPrice || item.unit_price || 0) || 0) *
+      (1 - (Number(item.discountPercent || item.discount_percent || 0) || 0) / 100)
+    )) || 0
+  }));
+}
+
+function money(value) {
+  return Number(value || 0).toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function getCompanyLogoBuffer() {
+  try {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get('company_logo');
+    if (row?.value) {
+      let raw = row.value;
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'string') raw = parsed;
+        else if (parsed && typeof parsed.dataUrl === 'string') raw = parsed.dataUrl;
+      } catch (e) { /* valor plano */ }
+      if (typeof raw === 'string' && /^data:image\/[a-z0-9+.-]+;base64,/i.test(raw)) {
+        return Buffer.from(raw.slice(raw.indexOf(',') + 1), 'base64');
+      }
+    }
+  } catch (e) {
+    console.error('Logo setting error:', e.message);
+  }
+  const fallback = path.join(__dirname, '..', 'systemhome', 'assets', 'LOGO.png');
+  try {
+    return fs.existsSync(fallback) ? fs.readFileSync(fallback) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function renderBudgetPdf(doc, budget, client) {
+  const pageWidth = doc.page.width;
+
+  // Encabezado corporativo con logo (guardado en PostgreSQL o logo por defecto)
+  doc.rect(0, 0, pageWidth, 150).fill('#f8fafc');
+  const logoBuffer = getCompanyLogoBuffer();
+  if (logoBuffer) {
+    try {
+      doc.image(logoBuffer, (pageWidth - 96) / 2, 14, { fit: [96, 72], align: 'center' });
+    } catch (e) {
+      console.error('PDF logo error:', e.message);
+    }
+  }
+  doc.fontSize(16).fillColor('#0b1f3a').text('SYSTEMHOME SECURITY', 40, 94, { align: 'center', width: pageWidth - 80 });
+  doc.fontSize(8.5).fillColor('#475569').text('Seguridad Electronica · Climatizacion · Redes & Telecomunicaciones', 40, 115, { align: 'center', width: pageWidth - 80 });
+  doc.fontSize(8).fillColor('#64748b').text('WhatsApp: +591 64595762 · Asuncion / Central', 40, 128, { align: 'center', width: pageWidth - 80 });
+  doc.moveTo(40, 147).lineTo(pageWidth - 40, 147).strokeColor('#0e7490').lineWidth(2).stroke();
+  doc.y = 166;
+
+  doc.fontSize(15).fillColor('#0b1f3a').text(`PRESUPUESTO Oficial: ${budget.number}`);
+  doc.fontSize(9).fillColor('#475569');
+  doc.text(`Fecha: ${new Date(budget.created_at).toLocaleDateString('es-PY')}   |   Estado: ${String(budget.status || '').toUpperCase()}`);
+  if (budget.valid_until) doc.text(`Valido hasta: ${budget.valid_until}`);
+  if (budget.estimated_time) doc.text(`Tiempo estimado: ${budget.estimated_time}`);
+  doc.moveDown();
+
+  const displayName = client?.name || budget.prospect_name || 'Cliente';
+  const displayRuc = client?.ruc || budget.prospect_ruc || 'S/N';
+  const displayPhone = client?.phone || budget.prospect_phone || '-';
+  const displayEmail = client?.email || budget.prospect_email || '-';
+
+  doc.rect(40, doc.y, 515, 72).fillAndStroke('#f8fafc', '#e2e8f0');
+  const boxTop = doc.y - 72;
+  doc.fillColor('#0b1f3a').fontSize(10).text('DATOS DEL CLIENTE', 50, boxTop + 8);
+  doc.fontSize(9).fillColor('#334155');
+  doc.text(`Nombre: ${displayName}`, 50, boxTop + 24);
+  doc.text(`RUC / CI: ${displayRuc}   |   Telefono: ${displayPhone}`, 50, boxTop + 38);
+  doc.text(`Correo: ${displayEmail}`, 50, boxTop + 52);
+  doc.text(`Direccion: ${budget.address || client?.address || 'A coordinar'}`, 50, boxTop + 66, { width: 490 });
+  doc.y = boxTop + 84;
+
+  doc.fontSize(10).fillColor('#0e7490').text(`SERVICIO: ${budget.service_type || 'Servicio Tecnico'}`);
+  if (budget.description) {
+    doc.fontSize(9).fillColor('#475569').text(budget.description, { width: 510 });
+  }
+  doc.moveDown();
+
+  let items = [];
+  try { items = typeof budget.items === 'string' ? JSON.parse(budget.items || '[]') : (budget.items || []); } catch (e) { items = []; }
+  items = normalizeBudgetItems(items);
+
+  doc.fontSize(10).fillColor('#111827').text('DETALLE DE PRODUCTOS Y SERVICIOS:');
+  doc.moveDown(0.3);
+
+  let currentY = doc.y;
+  if (currentY > 690) { doc.addPage(); currentY = 40; }
+  doc.rect(40, currentY, 515, 20).fill('#0b1f3a');
+  doc.fillColor('#ffffff').fontSize(8.5);
+  doc.text('Concepto / Producto', 45, currentY + 5);
+  doc.text('Cant.', 300, currentY + 5);
+  doc.text('P. Unit.', 345, currentY + 5);
+  doc.text('Dto.', 410, currentY + 5);
+  doc.text('Subtotal', 465, currentY + 5);
+  currentY += 22;
+
+  items.forEach((item, idx) => {
+    if (currentY > 720) { doc.addPage(); currentY = 40; }
+    const rowHeight = item.notes ? 28 : 18;
+    doc.rect(40, currentY, 515, rowHeight).fill(idx % 2 === 0 ? '#f8fafc' : '#ffffff');
+    doc.fillColor('#1e293b').fontSize(8.5);
+    doc.text(item.concept, 45, currentY + 4, { width: 245, ellipsis: true });
+    doc.text(String(item.qty), 300, currentY + 4);
+    doc.text(money(item.price), 345, currentY + 4, { width: 55, align: 'right' });
+    doc.text(`${item.discountPercent}%`, 410, currentY + 4);
+    doc.text(money(item.subtotal), 465, currentY + 4, { width: 80, align: 'right' });
+    if (item.notes) {
+      doc.fontSize(7.5).fillColor('#64748b').text(item.notes, 45, currentY + 16, { width: 490, ellipsis: true });
+    }
+    currentY += rowHeight + 2;
+  });
+
+  doc.y = currentY + 8;
+  doc.moveTo(340, doc.y).lineTo(555, doc.y).strokeColor('#cbd5e1').stroke();
+  doc.moveDown(0.4);
+
+  const labor = Number(budget.labor || 0);
+  const discount = Number(budget.discount || 0);
+  const tax = Number(budget.tax || 0);
+  const total = Number(budget.total || 0);
+  doc.fontSize(9).fillColor('#334155');
+  if (labor) doc.text(`Mano de obra / instalacion: Gs. ${money(labor)}`, 330, doc.y, { align: 'right', width: 225 });
+  if (tax) doc.text(`Impuestos / gastos: Gs. ${money(tax)}`, 330, doc.y, { align: 'right', width: 225 });
+  if (discount) doc.text(`Descuento: -Gs. ${money(discount)}`, 330, doc.y, { align: 'right', width: 225 });
+  doc.moveDown(0.5);
+  doc.fontSize(13).fillColor('#0e7490').text(`TOTAL: Gs. ${money(total)}`, 330, doc.y, { align: 'right', width: 225 });
+  doc.moveDown(1);
+
+  if (budget.conditions) {
+    doc.fontSize(8.5).fillColor('#475569').text(`Condiciones: ${budget.conditions}`, { width: 510 });
+  }
+  if (budget.observations) {
+    doc.fontSize(8.5).fillColor('#475569').text(`Observaciones: ${budget.observations}`, { width: 510 });
+  }
+  if (budget.reference) {
+    doc.fontSize(8.5).fillColor('#64748b').text(`Referencia: ${budget.reference}`, { width: 510 });
+  }
+  if (budget.latitude && budget.longitude) {
+    doc.fontSize(8.5).fillColor('#64748b').text(`GPS: ${budget.latitude}, ${budget.longitude}`, { width: 510 });
+  }
+
+  doc.moveDown(1.2);
+  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#e2e8f0').stroke();
+  doc.moveDown(0.4);
+  doc.fontSize(8).fillColor('#64748b').text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Asuncion, Paraguay', { align: 'center' });
+  doc.fontSize(7.5).fillColor('#94a3b8').text('Documento generado electronicamente por SYSTEMHOME · Gracias por su confianza.', { align: 'center' });
+  doc.end();
+}
+
+function generateBudgetPdfBuffer(budget, client) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    renderBudgetPdf(doc, budget, client);
+  });
 }
 
 function formatWorkOrder(w) {
@@ -697,6 +932,27 @@ app.get('/api/mail/status', authMiddleware, requireRole(['admin']), (req, res) =
   res.json({ configured: mailer.isConfigured() });
 });
 
+// Configuracion general persistida en PostgreSQL/SQLite (sin secretos)
+app.get('/api/settings/:key', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT value, updated_at FROM app_settings WHERE key = ?').get(req.params.key);
+  let value = null;
+  try { value = row?.value ? JSON.parse(row.value) : null; } catch (e) { value = row?.value || null; }
+  res.json({ key: req.params.key, value, updatedAt: row?.updated_at || null });
+});
+
+app.put('/api/settings/:key', authMiddleware, requireRole(['admin']), (req, res) => {
+  const key = String(req.params.key || '').trim();
+  if (!key) return res.status(400).json({ error: 'Clave de configuración inválida' });
+  const now = new Date().toISOString();
+  const value = JSON.stringify(req.body?.value ?? null);
+  db.prepare(`
+    INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+  `).run(key, value, now);
+  audit(req, 'configuracion_actualizada', 'settings', 'setting', null, null, { key });
+  res.json({ ok: true, key, value: req.body?.value ?? null, updatedAt: now });
+});
+
 app.get('/api/me', authMiddleware, (req, res) => {
   const user = db.prepare(`SELECT u.*, r.name as role_name FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.id = ?`).get(req.user.id);
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
@@ -952,13 +1208,47 @@ app.get('/api/requests/mine', authMiddleware, (req, res) => {
   res.json({ requests: rows.map(formatRequest) });
 });
 
+function resolveRequestClientId(req, body) {
+  if (body.clientId) return Number(body.clientId);
+  if (req.user.role === 'cliente') return getOrCreateClientIdForUser(req.user);
+
+  const name = String(body.clientName || '').trim();
+  const phone = String(body.clientPhone || '').trim();
+  const email = String(body.clientEmail || '').trim();
+  if (!name && !phone && !email) return null;
+
+  const existing = db.prepare(`
+    SELECT id FROM clients
+    WHERE (phone <> '' AND phone = ?) OR (email <> '' AND LOWER(email) = LOWER(?))
+    ORDER BY id LIMIT 1
+  `).get(phone, email);
+  if (existing) return existing.id;
+
+  const now = new Date().toISOString();
+  const inserted = db.prepare(`
+    INSERT INTO clients (name, ruc, address, phone, email, client_type, active, created_at, updated_at, created_by_user_id)
+    VALUES (?, ?, ?, ?, ?, 'persona', 1, ?, ?, ?)
+  `).run(
+    name || email || phone || 'Prospecto',
+    `PROSPECTO-${Date.now()}`,
+    String(body.clientAddress || body.address || ''),
+    phone, email, now, now, req.user.id
+  );
+  return inserted.lastInsertRowid;
+}
+
 app.post('/api/requests', authMiddleware, (req, res) => {
-  const { serviceType, description, address, latitude, longitude, reference, priority = 'normal', clientId: passedClientId } = req.body;
+  const {
+    serviceType, description, address, latitude, longitude, reference,
+    priority = 'normal', clientId: passedClientId,
+    clientName, clientPhone, clientEmail, clientAddress,
+    createBudget = true, items = [], budgetNumber
+  } = req.body;
   if (!serviceType || !description) {
     return res.status(400).json({ error: 'Tipo de servicio y descripción son requeridos' });
   }
 
-  const clientId = passedClientId || getOrCreateClientIdForUser(req.user);
+  const clientId = passedClientId || resolveRequestClientId(req, { clientName, clientPhone, clientEmail, clientAddress, address });
   const service = resolveService(serviceType);
   const number = ensureRequestNumber();
   const now = new Date().toISOString();
@@ -969,7 +1259,7 @@ app.post('/api/requests', authMiddleware, (req, res) => {
   const result = db.prepare(`
     INSERT INTO requests (number, client_id, user_id, service_id, service_type, description, address, latitude, longitude, reference, priority, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)
-  `).run(number, clientId, req.user.id, service.id, service.name || serviceType, description.trim(), address || '', latNum, lngNum, reference || '', priority, now, now);
+  `).run(number, clientId, req.user.id, service.id, service.name || serviceType, description.trim(), address || clientAddress || '', latNum, lngNum, reference || '', priority, now, now);
 
   const requestRow = db.prepare(`
     SELECT r.*, c.name as client_name, c.phone as client_phone, c.email as client_email, s.name as service_name
@@ -979,15 +1269,49 @@ app.post('/api/requests', authMiddleware, (req, res) => {
     WHERE r.id = ?
   `).get(result.lastInsertRowid);
 
+  let budgetRow = null;
+  if (createBudget) {
+    const normalizedItems = normalizeBudgetItems(items.length
+      ? items
+      : [{ concept: description.trim().substring(0, 120), qty: 1, price: 0 }]);
+    const bNumber = budgetNumber || ensureBudgetNumber();
+    const budgetInsert = db.prepare(`
+      INSERT INTO budgets (number, client_id, request_id, service_id, service_type, description, items, labor, discount, tax, total, status, source, address, latitude, longitude, reference, prospect_name, prospect_phone, prospect_email, prospect_ruc, created_at, updated_at, created_by_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 'borrador', 'client', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      bNumber, clientId, requestRow.id, service.id, service.name || serviceType, description.trim(),
+      JSON.stringify(normalizedItems), address || clientAddress || '', latNum, lngNum, reference || '',
+      clientName || '', clientPhone || '', clientEmail || '', '', now, now, req.user.id
+    );
+    syncBudgetItems(budgetInsert.lastInsertRowid, normalizedItems);
+    budgetRow = db.prepare(`
+      SELECT b.*, c.name as client_name, s.name as service_name
+      FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id
+      WHERE b.id = ?
+    `).get(budgetInsert.lastInsertRowid);
+  }
+
   if (clientId) {
     db.prepare('INSERT INTO client_history (client_id, entry_type, description, related_type, related_id, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(clientId, 'solicitud_creada', `Solicitud de cotización ${number} enviada`, 'request', requestRow.id, now, req.user.id);
   }
 
+  const formattedRequest = formatRequest(requestRow);
+  const displayClient = clientName || requestRow.client_name || req.user.name || req.user.username || 'Cliente';
   audit(req, 'solicitud_creada', 'requests', 'request', requestRow.id, null, { number, service: service.name, lat: latNum, lng: lngNum });
-  notifyAdmins('nueva_solicitud', '📝 Nueva Solicitud de Cotización', `El cliente ${req.user.name || req.user.username} solicitó cotización (${service.name}) [${number}].`, { requestId: requestRow.id });
+  notifyAdmins('nueva_solicitud', '📝 Nueva Solicitud de Cotización', `${displayClient} solicitó cotización (${service.name}) [${number}].`, { requestId: requestRow.id, budgetId: budgetRow?.id || null });
+  notifyRole('tecnico', 'nueva_solicitud', '📝 Nueva Solicitud - SYSTEMHOME', `${displayClient} solicitó ${service.name} [${number}].`, { requestId: requestRow.id, budgetId: budgetRow?.id || null });
+  publishChange('requests', 'created', { id: requestRow.id, number });
+  if (budgetRow) publishChange('budgets', 'created', { id: budgetRow.id, number: budgetRow.number, source: 'client' });
 
-  res.status(201).json({ request: formatRequest(requestRow) });
+  notifyByEmail(['admin', 'tecnico'], `SYSTEMHOME - Nueva solicitud ${number}`, (email, roleName) =>
+    Promise.resolve(mailer.sendNewRequestNotification(email, roleName === 'admin' ? 'Administrador' : 'Técnico', formattedRequest)));
+
+  res.status(201).json({
+    request: formattedRequest,
+    budget: budgetRow ? formatBudget(budgetRow) : null,
+    clientId
+  });
 });
 
 app.get('/api/requests/:id', authMiddleware, (req, res) => {
@@ -1108,11 +1432,34 @@ app.get('/api/budgets/mine', authMiddleware, (req, res) => {
   res.json({ budgets: rows.map(formatBudget) });
 });
 
+function validateBudgetContact(body, current = null) {
+  const clientId = body.clientId !== undefined ? body.clientId : current?.client_id;
+  const name = String(body.prospectName ?? current?.prospect_name ?? '').trim();
+  const phone = String(body.prospectPhone ?? current?.prospect_phone ?? '').trim();
+  const email = String(body.prospectEmail ?? current?.prospect_email ?? '').trim();
+  if (!clientId && !name && !phone && !email) {
+    return 'Seleccione un cliente registrado o ingrese nombre y teléfono/correo del cliente';
+  }
+  if (!clientId && !name) return 'Ingrese el nombre del cliente';
+  if (!clientId && !phone && !email) return 'Ingrese teléfono o correo para poder enviar la cotización';
+  return null;
+}
+
 app.post('/api/budgets', authMiddleware, requireRole(['admin', 'vendedor']), (req, res) => {
-  const { clientId, requestId, serviceType, description, items = [], labor = 0, discount = 0, total = 0, status = 'borrador', source = 'internal', validUntil, conditions, observations, estimatedTime, address, latitude, longitude, reference } = req.body;
+  const {
+    clientId, requestId, serviceType, description, items = [], labor = 0, discount = 0, tax = 0,
+    total = 0, status = 'borrador', source = 'internal', validUntil, conditions, observations,
+    estimatedTime, address, latitude, longitude, reference,
+    prospectName, prospectPhone, prospectEmail, prospectRuc
+  } = req.body;
+  const contactError = validateBudgetContact(req.body);
+  if (contactError) return res.status(400).json({ error: contactError });
+  if (!serviceType) return res.status(400).json({ error: 'Seleccione el tipo de servicio' });
+
   const now = new Date().toISOString();
   const number = ensureBudgetNumber();
   const service = resolveService(serviceType);
+  const normalizedItems = normalizeBudgetItems(items);
 
   let finalLat = latitude;
   let finalLng = longitude;
@@ -1128,27 +1475,32 @@ app.post('/api/budgets', authMiddleware, requireRole(['admin', 'vendedor']), (re
   }
 
   const result = db.prepare(`
-    INSERT INTO budgets (number, client_id, request_id, service_id, service_type, description, items, labor, discount, total, status, source, valid_until, conditions, observations, estimated_time, address, latitude, longitude, reference, created_at, updated_at, created_by_user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO budgets (number, client_id, request_id, service_id, service_type, description, items, labor, discount, tax, total, status, source, valid_until, conditions, observations, estimated_time, address, latitude, longitude, reference, prospect_name, prospect_phone, prospect_email, prospect_ruc, created_at, updated_at, created_by_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     number, clientId || null, requestId || null, service.id, service.name || serviceType || 'Otro',
-    description || '', JSON.stringify(items), Number(labor) || 0, Number(discount) || 0, Number(total) || 0,
+    description || '', JSON.stringify(normalizedItems), Number(labor) || 0, Number(discount) || 0, Number(tax) || 0, Number(total) || 0,
     status, source, validUntil || '', conditions || '', observations || '', estimatedTime || '',
-    finalAddress || '', finalLat || null, finalLng || null, reference || '', now, now, req.user.id
+    finalAddress || '', finalLat || null, finalLng || null, reference || '',
+    prospectName || '', prospectPhone || '', prospectEmail || '', prospectRuc || '', now, now, req.user.id
   );
+
+  syncBudgetItems(result.lastInsertRowid, normalizedItems);
 
   const budget = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(result.lastInsertRowid);
 
   if (requestId) {
     db.prepare("UPDATE requests SET status = 'cotizando' WHERE id = ?").run(requestId);
+    publishChange('requests', 'updated', { id: Number(requestId), status: 'cotizando' });
   }
 
   if (clientId) {
     db.prepare('INSERT INTO client_history (client_id, entry_type, description, related_type, related_id, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(clientId, 'cotizacion_creada', `Cotización ${number} creada por valor de Bs. ${Number(total).toLocaleString('es-PY')}`, 'budget', budget.id, now, req.user.id);
+      .run(clientId, 'cotizacion_creada', `Cotización ${number} creada por valor de Gs. ${money(total)}`, 'budget', budget.id, now, req.user.id);
   }
 
   audit(req, 'cotizacion_creada', 'budgets', 'budget', budget.id, null, { number, total });
+  publishChange('budgets', 'created', { id: budget.id, number, status });
   res.status(201).json({ budget: formatBudget(budget) });
 });
 
@@ -1157,21 +1509,36 @@ app.put('/api/budgets/:id', authMiddleware, requireRole(['admin', 'vendedor']), 
   const current = db.prepare('SELECT * FROM budgets WHERE id = ?').get(budgetId);
   if (!current) return res.status(404).json({ error: 'Cotización no encontrada' });
 
-  const { clientId, requestId, serviceType, description, items = [], labor = 0, discount = 0, total = 0, status = 'borrador', source = 'internal', validUntil, conditions, observations, estimatedTime, address, latitude, longitude, reference } = req.body;
+  const {
+    clientId, requestId, serviceType, description, items, labor = 0, discount = 0, tax = 0,
+    total = 0, status = 'borrador', source = 'internal', validUntil, conditions, observations,
+    estimatedTime, address, latitude, longitude, reference,
+    prospectName, prospectPhone, prospectEmail, prospectRuc
+  } = req.body;
+  const contactError = validateBudgetContact(req.body, current);
+  if (contactError) return res.status(400).json({ error: contactError });
+
   const now = new Date().toISOString();
   const service = resolveService(serviceType || current.service_type);
+  const normalizedItems = normalizeBudgetItems(items === undefined
+    ? (() => { try { return typeof current.items === 'string' ? JSON.parse(current.items || '[]') : (current.items || []); } catch (e) { return []; } })()
+    : items);
 
   db.prepare(`
-    UPDATE budgets SET client_id = ?, request_id = ?, service_id = ?, service_type = ?, description = ?, items = ?, labor = ?, discount = ?, total = ?, status = ?, source = ?, valid_until = ?, conditions = ?, observations = ?, estimated_time = ?, address = ?, latitude = ?, longitude = ?, reference = ?, updated_at = ? WHERE id = ?
+    UPDATE budgets SET client_id = ?, request_id = ?, service_id = ?, service_type = ?, description = ?, items = ?,
+      labor = ?, discount = ?, tax = ?, total = ?, status = ?, source = ?, valid_until = ?, conditions = ?,
+      observations = ?, estimated_time = ?, address = ?, latitude = ?, longitude = ?, reference = ?,
+      prospect_name = ?, prospect_phone = ?, prospect_email = ?, prospect_ruc = ?, updated_at = ? WHERE id = ?
   `).run(
     clientId !== undefined ? clientId : current.client_id,
     requestId !== undefined ? requestId : current.request_id,
     service.id,
     service.name,
     description !== undefined ? description : current.description,
-    JSON.stringify(items),
+    JSON.stringify(normalizedItems),
     labor !== undefined ? Number(labor) : current.labor,
     discount !== undefined ? Number(discount) : current.discount,
+    tax !== undefined ? Number(tax) : current.tax,
     total !== undefined ? Number(total) : current.total,
     status || current.status,
     source || current.source,
@@ -1183,12 +1550,18 @@ app.put('/api/budgets/:id', authMiddleware, requireRole(['admin', 'vendedor']), 
     latitude !== undefined ? latitude : current.latitude,
     longitude !== undefined ? longitude : current.longitude,
     reference !== undefined ? reference : current.reference,
+    prospectName !== undefined ? prospectName : current.prospect_name,
+    prospectPhone !== undefined ? prospectPhone : current.prospect_phone,
+    prospectEmail !== undefined ? prospectEmail : current.prospect_email,
+    prospectRuc !== undefined ? prospectRuc : current.prospect_ruc,
     now,
     budgetId
   );
 
+  syncBudgetItems(budgetId, normalizedItems);
   const updated = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   audit(req, 'cotizacion_modificada', 'budgets', 'budget', budgetId, { status: current.status }, { status: updated.status });
+  publishChange('budgets', 'updated', { id: budgetId, number: updated.number, status: updated.status });
   res.json({ budget: formatBudget(updated) });
 });
 
@@ -1215,7 +1588,53 @@ app.post('/api/budgets/:id/send', authMiddleware, requireRole(['admin', 'vendedo
 
   const updated = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   audit(req, 'cotizacion_enviada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'enviado' });
+  publishChange('budgets', 'sent', { id: budgetId, number: budget.number, status: 'enviado' });
+  if (budget.request_id) publishChange('requests', 'updated', { id: Number(budget.request_id), status: 'cotizacion_enviada' });
   res.json({ budget: formatBudget(updated) });
+});
+
+// Envio real por correo con PDF adjunto (cliente registrado o prospecto)
+app.post('/api/budgets/:id/email', authMiddleware, requireRole(['admin', 'vendedor']), async (req, res) => {
+  const budgetId = Number(req.params.id);
+  const { to, message = '', markSent = true } = req.body || {};
+  const budget = db.prepare('SELECT * FROM budgets WHERE id = ?').get(budgetId);
+  if (!budget) return res.status(404).json({ error: 'Cotización no encontrada' });
+
+  const client = budget.client_id ? db.prepare('SELECT * FROM clients WHERE id = ?').get(budget.client_id) : null;
+  const recipient = String(to || budget.prospect_email || client?.email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return res.status(400).json({ error: 'Ingrese un correo electrónico válido para el destinatario' });
+  }
+  if (!mailer.isConfigured()) {
+    return res.status(503).json({ error: 'Correo SMTP no configurado. Configure SMTP_HOST, SMTP_USER y SMTP_PASS en Render.' });
+  }
+
+  try {
+    const formatted = formatBudget(budget);
+    const pdfBuffer = await generateBudgetPdfBuffer(budget, client);
+    const result = await mailer.sendBudget(
+      recipient,
+      budget.prospect_name || client?.name || 'Cliente',
+      formatted,
+      pdfBuffer,
+      String(message || '')
+    );
+
+    if (markSent) {
+      const now = new Date().toISOString();
+      db.prepare("UPDATE budgets SET status = 'enviado', sent_at = ?, sent_by_user_id = ?, updated_at = ? WHERE id = ?")
+        .run(now, req.user.id, now, budgetId);
+      if (budget.request_id) {
+        db.prepare("UPDATE requests SET status = 'cotizacion_enviada' WHERE id = ?").run(budget.request_id);
+      }
+      publishChange('budgets', 'sent', { id: budgetId, number: budget.number, status: 'enviado', via: 'email' });
+    }
+    audit(req, 'cotizacion_enviada_correo', 'budgets', 'budget', budgetId, null, { to: recipient, sent: result.sent });
+    res.json({ ok: true, sent: result.sent, to: recipient, fileName: `cotizacion-${budget.number}.pdf` });
+  } catch (err) {
+    console.error('budget email error:', err.message);
+    res.status(500).json({ error: 'No se pudo enviar el correo: ' + err.message });
+  }
 });
 
 // Aprobación de cotización -> Generación automática de orden de trabajo con GPS
@@ -1262,6 +1681,9 @@ app.post('/api/budgets/:id/approve', authMiddleware, (req, res) => {
 
   audit(req, 'cotizacion_aprobada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'aprobado', orderNumber });
   notifyAdmins('cotizacion_aprobada', '✅ Cotización Aprobada', `El cliente aprobó la cotización ${budget.number}. Se ha generado la Orden ${orderNumber}.`, { budgetId, orderId });
+  notifyRole('tecnico', 'orden_asignada', '🔧 Nueva Orden de Trabajo', `Orden ${orderNumber} generada desde la cotización ${budget.number}.`, { orderId, budgetId });
+  publishChange('budgets', 'approved', { id: budgetId, number: budget.number, status: 'aprobado' });
+  publishChange('workorders', 'created', { id: orderId, number: orderNumber });
 
   const updatedBudget = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   res.json({ budget: formatBudget(updatedBudget), workOrderId: orderId, workOrderNumber: orderNumber });
@@ -1288,6 +1710,7 @@ app.post('/api/budgets/:id/reject', authMiddleware, (req, res) => {
 
   audit(req, 'cotizacion_rechazada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'rechazado', reason });
   notifyAdmins('cotizacion_rechazada', '❌ Cotización Rechazada', `La cotización ${budget.number} fue rechazada por el cliente.${reason ? ' Motivo: ' + reason : ''}`, { budgetId });
+  publishChange('budgets', 'rejected', { id: budgetId, number: budget.number, status: 'rechazado' });
 
   const updatedBudget = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   res.json({ budget: formatBudget(updatedBudget) });
@@ -1305,98 +1728,110 @@ app.get('/api/budgets/:id/export', authMiddleware, (req, res) => {
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename=cotizacion-${budget.number}.pdf`);
+  res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename=cotizacion-${budget.number}.pdf`);
   doc.pipe(res);
-
-  doc.fontSize(22).fillColor('#1a56db').text('SYSTEMHOME SECURITY', { align: 'center' });
-  doc.fontSize(10).fillColor('#4b5563').text('Seguridad Electrónica · Climatización · Redes & Telecomunicaciones', { align: 'center' });
-  doc.fontSize(9).fillColor('#6b7280').text('Teléfono / WhatsApp: +591 64595762 · Asunción / Central', { align: 'center' });
-  doc.moveDown(0.5);
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#1a56db').lineWidth(2).stroke();
-  doc.moveDown();
-
-  doc.fontSize(16).fillColor('#111827').text(`COTIZACIÓN OFICIAL: ${budget.number}`, { align: 'left' });
-  doc.fontSize(10).fillColor('#4b5563');
-  doc.text(`Fecha de Emisión: ${new Date(budget.created_at).toLocaleDateString('es-PY')}   |   Estado: ${budget.status.toUpperCase()}`);
-  if (budget.valid_until) doc.text(`Válido hasta: ${budget.valid_until}`);
-  doc.moveDown();
-
-  doc.rect(40, doc.y, 515, 65).fillAndStroke('#f8fafc', '#e2e8f0');
-  doc.fillColor('#1e293b').fontSize(11).text(' DATOS DEL CLIENTE:', 50, doc.y - 58);
-  doc.fontSize(9).fillColor('#334155');
-  doc.text(`Cliente: ${client ? client.name : 'Venta General'}`, 50, doc.y + 4);
-  doc.text(`RUC / CI: ${client ? (client.ruc || 'S/N') : 'S/N'}   |   Teléfono: ${client ? (client.phone || '-') : '-'}`, 50, doc.y + 2);
-  doc.text(`Dirección: ${budget.address || (client ? client.address : 'A coordinar')}`, 50, doc.y + 2);
-  doc.moveDown(2);
-
-  doc.fontSize(11).fillColor('#1a56db').text(`SERVICIO: ${budget.service_type || 'Servicio Técnico'}`);
-  if (budget.description) {
-    doc.fontSize(9).fillColor('#475569').text(budget.description);
-  }
-  doc.moveDown();
-
-  // Tabla de items
-  let items = [];
-  try { items = JSON.parse(budget.items || '[]'); } catch (e) { items = []; }
-
-  doc.fontSize(10).fillColor('#111827').text('DETALLE DE PRODUCTOS Y SERVICIOS:');
-  doc.moveDown(0.3);
-
-  let currentY = doc.y;
-  doc.rect(40, currentY, 515, 20).fill('#1e293b');
-  doc.fillColor('#ffffff').fontSize(9);
-  doc.text('Concepto / Producto', 45, currentY + 5);
-  doc.text('Cant.', 320, currentY + 5);
-  doc.text('P. Unitario', 370, currentY + 5);
-  doc.text('Subtotal', 470, currentY + 5);
-
-  currentY += 22;
-  items.forEach((it, idx) => {
-    const qty = Number(it.quantity || it.qty || 1);
-    const unitPrice = Number(it.unit_price || it.price || 0);
-    const subtotal = Number(it.subtotal || (qty * unitPrice));
-
-    doc.rect(40, currentY, 515, 18).fill(idx % 2 === 0 ? '#f8fafc' : '#ffffff');
-    doc.fillColor('#1e293b').fontSize(8.5);
-    doc.text(it.concept || it.name || 'Item', 45, currentY + 4, { width: 270, ellipsis: true });
-    doc.text(String(qty), 325, currentY + 4);
-    doc.text(unitPrice.toLocaleString('es-PY') + ' Bs', 370, currentY + 4);
-    doc.text(subtotal.toLocaleString('es-PY') + ' Bs', 470, currentY + 4);
-    currentY += 20;
-  });
-
-  doc.y = currentY + 10;
-  doc.moveTo(350, doc.y).lineTo(555, doc.y).strokeColor('#cbd5e1').stroke();
-  doc.moveDown(0.5);
-
-  const labor = Number(budget.labor || 0);
-  const discount = Number(budget.discount || 0);
-  const total = Number(budget.total || 0);
-
-  doc.fontSize(9).fillColor('#334155');
-  if (labor > 0) doc.text(`Mano de Obra / Instalación: ${labor.toLocaleString('es-PY')} Bs`, 350, doc.y, { align: 'right' });
-  if (discount > 0) doc.text(`Descuento Especial: -${discount.toLocaleString('es-PY')} Bs`, 350, doc.y, { align: 'right' });
-  doc.moveDown(0.5);
-  doc.fontSize(13).fillColor('#1a56db').text(`TOTAL: ${total.toLocaleString('es-PY')} Bs`, 350, doc.y, { align: 'right' });
-
-  if (budget.conditions || budget.observations) {
-    doc.moveDown(2);
-    doc.fontSize(9).fillColor('#475569');
-    if (budget.conditions) doc.text(`Condiciones: ${budget.conditions}`);
-    if (budget.observations) doc.text(`Observaciones: ${budget.observations}`);
-  }
-
-  doc.moveDown(2);
-  doc.fontSize(8.5).fillColor('#94a3b8').text('Documento generado por SYSTEMHOME · Gracias por su confianza.', { align: 'center' });
-  doc.end();
+  renderBudgetPdf(doc, budget, client);
 });
 
 // ============================================================
 // ÓRDENES DE TRABAJO (SH-O01, SH-O02, SH-O03, SH-O04)
 // ============================================================
 app.get('/api/technicians', authMiddleware, (req, res) => {
-  const rows = db.prepare('SELECT * FROM technicians ORDER BY id').all();
+  const rows = db.prepare(`
+    SELECT t.*, u.username, u.email as user_email, u.phone as user_phone, u.active as user_active
+    FROM technicians t LEFT JOIN users u ON u.id = t.user_id
+    ORDER BY t.id
+  `).all();
   res.json({ technicians: rows });
+});
+
+app.post('/api/technicians', authMiddleware, requireRole(['admin']), (req, res) => {
+  const { name, specialty = '', phone = '', email = '', username, password, active = true } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'El nombre del técnico es obligatorio' });
+
+  let userId = null;
+  if (username || password) {
+    if (!username || !password || String(password).length < 6) {
+      return res.status(400).json({ error: 'Para crear acceso de técnico ingrese usuario y contraseña (mínimo 6 caracteres)' });
+    }
+    const dup = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(String(username).trim());
+    if (dup) return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
+    const role = db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'tecnico'").get();
+    if (!role) return res.status(500).json({ error: 'No existe el rol técnico en la base de datos' });
+    const now = new Date().toISOString();
+    const inserted = db.prepare(`
+      INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(String(username).trim(), bcrypt.hashSync(String(password), 10), String(name).trim(), String(email || ''), String(phone || ''), role.id, active ? 1 : 0, now, now);
+    userId = inserted.lastInsertRowid;
+  }
+
+  const now = new Date().toISOString();
+  const result = db.prepare(`
+    INSERT INTO technicians (name, specialty, phone, email, user_id, active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(String(name).trim(), String(specialty || ''), String(phone || ''), String(email || ''), userId, active ? 1 : 0, now, now);
+
+  const tech = db.prepare('SELECT * FROM technicians WHERE id = ?').get(result.lastInsertRowid);
+  audit(req, 'tecnico_creado', 'technicians', 'technician', tech.id, null, { name: tech.name, username });
+  publishChange('technicians', 'created', { id: tech.id, name: tech.name });
+  notifyAdmins('tecnico_creado', '🧑‍🔧 Técnico agregado', `${tech.name} fue agregado al equipo.`, { technicianId: tech.id });
+  res.status(201).json({ technician: tech });
+});
+
+app.put('/api/technicians/:id', authMiddleware, requireRole(['admin']), (req, res) => {
+  const techId = Number(req.params.id);
+  const current = db.prepare('SELECT * FROM technicians WHERE id = ?').get(techId);
+  if (!current) return res.status(404).json({ error: 'Técnico no encontrado' });
+
+  const { name, specialty, phone, email, active, password } = req.body || {};
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE technicians SET name = ?, specialty = ?, phone = ?, email = ?, active = ?, updated_at = ? WHERE id = ?
+  `).run(
+    name !== undefined ? String(name).trim() : current.name,
+    specialty !== undefined ? String(specialty) : current.specialty,
+    phone !== undefined ? String(phone) : current.phone,
+    email !== undefined ? String(email) : current.email,
+    active !== undefined ? (active ? 1 : 0) : current.active,
+    now, techId
+  );
+
+  if (current.user_id) {
+    db.prepare(`
+      UPDATE users SET full_name = ?, email = ?, phone = ?, active = ?, password_hash = ?, updated_at = ? WHERE id = ?
+    `).run(
+      name !== undefined ? String(name).trim() : current.name,
+      email !== undefined ? String(email) : (db.prepare('SELECT email FROM users WHERE id = ?').get(current.user_id)?.email || ''),
+      phone !== undefined ? String(phone) : (db.prepare('SELECT phone FROM users WHERE id = ?').get(current.user_id)?.phone || ''),
+      active !== undefined ? (active ? 1 : 0) : 1,
+      password && String(password).length >= 6 ? bcrypt.hashSync(String(password), 10) : db.prepare('SELECT password_hash FROM users WHERE id = ?').get(current.user_id).password_hash,
+      now, current.user_id
+    );
+  }
+
+  const tech = db.prepare('SELECT * FROM technicians WHERE id = ?').get(techId);
+  audit(req, 'tecnico_actualizado', 'technicians', 'technician', techId, current, tech);
+  publishChange('technicians', 'updated', { id: techId, name: tech.name });
+  res.json({ technician: tech });
+});
+
+app.delete('/api/technicians/:id', authMiddleware, requireRole(['admin']), (req, res) => {
+  const techId = Number(req.params.id);
+  const current = db.prepare('SELECT * FROM technicians WHERE id = ?').get(techId);
+  if (!current) return res.status(404).json({ error: 'Técnico no encontrado' });
+
+  if (current.user_id) {
+    db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), current.user_id);
+  }
+  db.prepare('DELETE FROM work_order_assignments WHERE technician_id = ?').run(techId);
+  db.prepare('UPDATE work_orders SET technician_id = NULL WHERE technician_id = ?').run(techId);
+  db.prepare('UPDATE maintenances SET technician_id = NULL WHERE technician_id = ?').run(techId);
+  db.prepare('DELETE FROM technicians WHERE id = ?').run(techId);
+
+  audit(req, 'tecnico_eliminado', 'technicians', 'technician', techId, current, null);
+  publishChange('technicians', 'deleted', { id: techId, name: current.name });
+  res.json({ ok: true, message: 'Técnico eliminado. Sus órdenes quedaron sin asignar.' });
 });
 
 app.get('/api/workorders', authMiddleware, (req, res) => {
@@ -1489,6 +1924,7 @@ app.post('/api/workorders', authMiddleware, requireRole(['admin']), (req, res) =
   }
 
   audit(req, 'orden_creada', 'workorders', 'work_order', orderId, null, { number, status });
+  publishChange('workorders', 'created', { id: orderId, number });
   const order = db.prepare(`SELECT w.*, c.name as client_name, s.name as service_name, t.name as technician_name FROM work_orders w LEFT JOIN clients c ON c.id = w.client_id LEFT JOIN services s ON s.id = w.service_id LEFT JOIN technicians t ON t.id = w.technician_id WHERE w.id = ?`).get(orderId);
   res.status(201).json({ workOrder: formatWorkOrder(order) });
 });
@@ -1529,6 +1965,7 @@ app.put('/api/workorders/:id', authMiddleware, (req, res) => {
     .run(orderId, 'orden_actualizada', `Orden actualizada (${status || current.status})`, `Modificado por ${req.user.username}`, now, req.user.id);
 
   audit(req, 'orden_modificada', 'workorders', 'work_order', orderId, { status: current.status }, { status: status || current.status });
+  publishChange('workorders', 'updated', { id: orderId, status: status || current.status });
   const updated = db.prepare(`SELECT w.*, c.name as client_name, s.name as service_name, t.name as technician_name FROM work_orders w LEFT JOIN clients c ON c.id = w.client_id LEFT JOIN services s ON s.id = w.service_id LEFT JOIN technicians t ON t.id = w.technician_id WHERE w.id = ?`).get(orderId);
   res.json({ workOrder: formatWorkOrder(updated) });
 });
@@ -1543,6 +1980,7 @@ app.post('/api/workorders/:id/start', authMiddleware, requireRole(['admin', 'tec
     .run(orderId, 'orden_iniciada', 'Técnico inició los trabajos de campo', 'Estado: en_proceso', now, req.user.id);
 
   audit(req, 'orden_iniciada', 'workorders', 'work_order', orderId, null, { status: 'en_proceso' });
+  publishChange('workorders', 'updated', { id: orderId, status: 'en_proceso' });
   const updated = db.prepare(`SELECT w.*, c.name as client_name, s.name as service_name, t.name as technician_name FROM work_orders w LEFT JOIN clients c ON c.id = w.client_id LEFT JOIN services s ON s.id = w.service_id LEFT JOIN technicians t ON t.id = w.technician_id WHERE w.id = ?`).get(orderId);
   res.json({ workOrder: formatWorkOrder(updated) });
 });
@@ -1579,6 +2017,7 @@ app.post('/api/workorders/:id/finish', authMiddleware, requireRole(['admin', 'te
     .run(orderId, 'trabajo_finalizado', 'Técnico finalizó el trabajo y cargó evidencias y materiales', `Materiales registrados: ${materialsUsed.length}`, now, req.user.id);
 
   audit(req, 'orden_finalizada_tecnico', 'workorders', 'work_order', orderId, { status: order.status }, { status: 'finalizada' });
+  publishChange('workorders', 'updated', { id: orderId, status: 'finalizada' });
   notifyAdmins('orden_por_cerrar', '🔧 Orden Finalizada por Técnico', `La Orden ${order.number} fue finalizada por el técnico y requiere revisión y cierre definitivo.`, { orderId });
 
   const updated = db.prepare(`SELECT w.*, c.name as client_name, s.name as service_name, t.name as technician_name FROM work_orders w LEFT JOIN clients c ON c.id = w.client_id LEFT JOIN services s ON s.id = w.service_id LEFT JOIN technicians t ON t.id = w.technician_id WHERE w.id = ?`).get(orderId);
@@ -1637,6 +2076,8 @@ app.post('/api/workorders/:id/close', authMiddleware, requireRole(['admin']), (r
   }
 
   audit(req, 'orden_cerrada_admin', 'workorders', 'work_order', orderId, { status: order.status }, { status: 'cerrada', materialsDeducted: matsToDeduct.length });
+  publishChange('workorders', 'updated', { id: orderId, status: 'cerrada' });
+  publishChange('inventory', 'updated', { reason: 'work_order_close', orderId });
   detectStockAlerts();
 
   const updated = db.prepare(`SELECT w.*, c.name as client_name, s.name as service_name, t.name as technician_name FROM work_orders w LEFT JOIN clients c ON c.id = w.client_id LEFT JOIN services s ON s.id = w.service_id LEFT JOIN technicians t ON t.id = w.technician_id WHERE w.id = ?`).get(orderId);
@@ -2149,6 +2590,21 @@ app.get('/api/maintenances', authMiddleware, (req, res) => {
   res.json({ maintenances: rows.map(formatMaintenance) });
 });
 
+// Una sola llamada para pintar la pantalla de mantenimientos (reduce la latencia)
+app.get('/api/maintenances/workbench', authMiddleware, (req, res) => {
+  const maintenances = db.prepare(`
+    SELECT m.*, c.name as client_name, t.name as technician_name, ii.name as item_name
+    FROM maintenances m
+    LEFT JOIN clients c ON c.id = m.client_id
+    LEFT JOIN technicians t ON t.id = m.technician_id
+    LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id
+    ORDER BY m.next_maintenance_date ASC
+  `).all().map(formatMaintenance);
+  const clients = db.prepare('SELECT * FROM clients WHERE active = 1 ORDER BY name').all().map(formatClient);
+  const inventory = db.prepare('SELECT * FROM inventory_items WHERE active = 1 ORDER BY name').all().map(formatInventoryItem);
+  res.json({ maintenances, clients, inventory });
+});
+
 app.post('/api/maintenances', authMiddleware, requireRole(['admin', 'vendedor', 'tecnico']), (req, res) => {
   const { clientId, technicianId, inventoryItemId, equipmentName, nextMaintenanceDate, scheduledTime, maintenanceType, frequency = 'Semestral', status = 'programado', description = '', notes = '', latitude, longitude } = req.body;
   if (!nextMaintenanceDate || !maintenanceType) {
@@ -2172,6 +2628,7 @@ app.post('/api/maintenances', authMiddleware, requireRole(['admin', 'vendedor', 
   }
 
   audit(req, 'mantenimiento_programado', 'maintenances', 'maintenance', maintId, null, { nextMaintenanceDate, maintenanceType, status });
+  publishChange('maintenances', 'created', { id: maintId, status });
   const maint = db.prepare(`SELECT m.*, c.name as client_name, t.name as technician_name, ii.name as item_name FROM maintenances m LEFT JOIN clients c ON c.id = m.client_id LEFT JOIN technicians t ON t.id = m.technician_id LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id WHERE m.id = ?`).get(maintId);
   res.status(201).json({ maintenance: formatMaintenance(maint) });
 });
@@ -2205,6 +2662,7 @@ app.put('/api/maintenances/:id', authMiddleware, requireRole(['admin', 'tecnico'
 
   const updated = db.prepare(`SELECT m.*, c.name as client_name, t.name as technician_name, ii.name as item_name FROM maintenances m LEFT JOIN clients c ON c.id = m.client_id LEFT JOIN technicians t ON t.id = m.technician_id LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id WHERE m.id = ?`).get(maintId);
   audit(req, 'mantenimiento_modificado', 'maintenances', 'maintenance', maintId, { status: current.status }, { status: updated.status });
+  publishChange('maintenances', 'updated', { id: maintId, status: updated.status });
   res.json({ maintenance: formatMaintenance(updated) });
 });
 
@@ -2235,6 +2693,7 @@ app.post('/api/maintenances/:id/complete', authMiddleware, requireRole(['admin',
   }
 
   audit(req, 'mantenimiento_completado', 'maintenances', 'maintenance', maintId, { status: current.status }, { status: 'realizado' });
+  publishChange('maintenances', 'updated', { id: maintId, status: 'realizado' });
   notifyAdmins('mantenimiento_realizado', '🛠️ Mantenimiento Realizado', `Se ha completado el mantenimiento de ${current.equipment_name || 'equipo'} (${current.next_maintenance_date}).`, { maintId });
 
   const updated = db.prepare(`SELECT m.*, c.name as client_name, t.name as technician_name, ii.name as item_name FROM maintenances m LEFT JOIN clients c ON c.id = m.client_id LEFT JOIN technicians t ON t.id = m.technician_id LEFT JOIN inventory_items ii ON ii.id = m.inventory_item_id WHERE m.id = ?`).get(maintId);

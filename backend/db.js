@@ -163,7 +163,7 @@ function addColumnIfNotExists(tableName, columnName, columnDef) {
   try {
     if (isPostgres) {
       const exists = get(
-        `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
         [tableName, columnName]
       );
       if (!exists) {
@@ -234,6 +234,8 @@ function initSchema() {
       service_type TEXT, description TEXT, items TEXT,
       labor ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
       discount ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      tax ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      prospect_name TEXT, prospect_phone TEXT, prospect_email TEXT, prospect_ruc TEXT,
       total ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'borrador', source TEXT NOT NULL DEFAULT 'internal',
       valid_until TEXT, conditions TEXT, observations TEXT, estimated_time TEXT,
@@ -254,13 +256,21 @@ function initSchema() {
       budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
       concept TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1,
       unit_price ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      discount_percent ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      notes TEXT,
       subtotal ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS technicians (
       id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
       name TEXT NOT NULL, specialty TEXT, phone TEXT, email TEXT,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS work_orders (
       id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
@@ -479,12 +489,10 @@ function initSchema() {
     );
   `;
 
-  if (isPostgres) {
-    // PostgreSQL: exec handles splitting
-    db.exec(schema);
-  } else {
-    db.exec(schema);
-    // SQLite migrations
+  db.exec(schema);
+
+  // Migraciones idempotentes para AMBOS motores: CREATE TABLE IF NOT EXISTS
+  // no agrega columnas a tablas que ya existen.
     addColumnIfNotExists('inventory_items', 'badge', 'TEXT');
     addColumnIfNotExists('inventory_items', 'show_in_catalog', 'INTEGER NOT NULL DEFAULT 1');
     addColumnIfNotExists('inventory_items', 'min_stock', 'INTEGER NOT NULL DEFAULT 5');
@@ -544,7 +552,14 @@ function initSchema() {
     addColumnIfNotExists('budgets', 'client_response_date', 'TEXT');
     addColumnIfNotExists('budgets', 'client_notes', 'TEXT');
     addColumnIfNotExists('budgets', 'client_response_by_user_id', 'INTEGER REFERENCES users(id)');
-  }
+    addColumnIfNotExists('budgets', 'tax', 'REAL NOT NULL DEFAULT 0');
+    addColumnIfNotExists('budgets', 'prospect_name', 'TEXT');
+    addColumnIfNotExists('budgets', 'prospect_phone', 'TEXT');
+    addColumnIfNotExists('budgets', 'prospect_email', 'TEXT');
+    addColumnIfNotExists('budgets', 'prospect_ruc', 'TEXT');
+    addColumnIfNotExists('budget_items', 'discount_percent', 'REAL NOT NULL DEFAULT 0');
+    addColumnIfNotExists('budget_items', 'notes', 'TEXT');
+    addColumnIfNotExists('technicians', 'user_id', 'INTEGER REFERENCES users(id)');
 }
 
 // ============================================================

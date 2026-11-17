@@ -1,5 +1,5 @@
 /**
- * SYSTEMHOME - Modulo de correo electronico real (SMTP)
+ * SYSTEMHOME - Módulo de correo electrónico real (SMTP)
  * Credenciales SOLO desde variables de entorno.
  * SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, MAIL_FROM, MAIL_FROM_NAME, APP_URL
  */
@@ -38,6 +38,10 @@ function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function money(value) {
+  return Number(value || 0).toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 function shell(title, content) {
   return '<!doctype html><html lang="es"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
@@ -55,19 +59,30 @@ function shell(title, content) {
 }
 
 function button(href, label) {
+  if (!href) return '';
   return '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0">' +
     '<tr><td style="border-radius:8px;background:#0e7490">' +
     '<a href="' + esc(href) + '" style="display:inline-block;padding:12px 24px;color:#ffffff;text-decoration:none;font-weight:600">' + esc(label) + '</a>' +
     '</td></tr></table>';
 }
 
-async function sendMail(to, subject, html, text) {
+/**
+ * Envio generico. `attachments` es opcional y usa el formato de nodemailer.
+ */
+async function sendMail(to, subject, html, text, attachments = []) {
   const t = getTransporter();
   if (!t) {
     console.warn('SMTP no configurado: correo no enviado a', String(to).replace(/@.*/, '@***'));
     return { sent: false, reason: 'SMTP_NOT_CONFIGURED' };
   }
-  await t.sendMail({ from: '"' + FROM_NAME + '" <' + FROM + '>', to, subject, html, text });
+  await t.sendMail({
+    from: '"' + FROM_NAME + '" <' + FROM + '>',
+    to,
+    subject,
+    html,
+    text,
+    attachments
+  });
   return { sent: true };
 }
 
@@ -93,4 +108,65 @@ async function sendWelcome(to, name, username) {
   return sendMail(to, 'Bienvenido a SYSTEMHOME', html, 'Tu cuenta ha sido creada. Usuario: ' + username);
 }
 
-module.exports = { isConfigured, sendMail, sendPasswordReset, sendWelcome };
+/**
+ * Cotizacion por correo real, con PDF adjunto cuando se genera.
+ */
+async function sendBudget(to, clientName, budget, pdfBuffer, message = '') {
+  const link = APP_URL ? APP_URL + '/#/quote/' + encodeURIComponent(budget.number) : '';
+  const html = shell('Cotizacion SYSTEMHOME',
+    '<h2 style="margin:0 0 10px;font-size:20px">Hola ' + esc(clientName || 'Cliente') + '</h2>' +
+    '<p style="color:#475569;line-height:1.6">Adjuntamos la cotizacion <strong>' + esc(budget.number) + '</strong> preparada por SYSTEMHOME.</p>' +
+    (message ? '<div style="background:#f0f9ff;border-left:4px solid #0e7490;padding:12px 16px;border-radius:6px;color:#334155;margin:16px 0;white-space:pre-wrap">' + esc(message) + '</div>' : '') +
+    '<table width="100%" cellpadding="8" style="border-collapse:collapse;background:#f8fafc;border-radius:8px;margin:16px 0">' +
+    '<tr><td style="color:#64748b;font-size:13px">Servicio</td><td style="text-align:right;font-weight:600">' + esc(budget.serviceType || 'Servicio tecnico') + '</td></tr>' +
+    '<tr><td style="color:#64748b;font-size:13px">Total</td><td style="text-align:right;font-weight:700;color:#0e7490">Gs. ' + money(budget.total) + '</td></tr>' +
+    (budget.validUntil ? '<tr><td style="color:#64748b;font-size:13px">Valido hasta</td><td style="text-align:right">' + esc(budget.validUntil) + '</td></tr>' : '') +
+    '</table>' +
+    '<p style="color:#475569;font-size:13px">El detalle completo se encuentra en el PDF adjunto. Si desea aprobar o consultar, responda a este correo o escribanos al WhatsApp +591 64595762.</p>' +
+    button(link, 'Ver en el portal') +
+    '<p style="color:#94a3b8;font-size:12px">Gracias por confiar en SYSTEMHOME Security.</p>');
+
+  const attachments = [];
+  if (pdfBuffer && pdfBuffer.length) {
+    attachments.push({
+      filename: 'cotizacion-' + String(budget.number || 'systemhome').replace(/[^\w.-]/g, '_') + '.pdf',
+      content: pdfBuffer,
+      contentType: 'application/pdf'
+    });
+  }
+
+  const text = 'Hola ' + (clientName || 'Cliente') + ',\n\n' +
+    'Adjuntamos la cotizacion ' + budget.number + ' por Gs. ' + money(budget.total) + '.\n' +
+    (message ? message + '\n\n' : '') +
+    'Consultas: WhatsApp +591 64595762.\n\nSYSTEMHOME Security';
+
+  return sendMail(to, 'SYSTEMHOME - Cotizacion ' + budget.number, html, text, attachments);
+}
+
+/**
+ * Aviso interno de nueva solicitud (admin / tecnico).
+ */
+async function sendNewRequestNotification(to, roleLabel, request) {
+  const html = shell('Nueva solicitud',
+    '<h2 style="margin:0 0 10px;font-size:20px">Nueva solicitud de cotizacion</h2>' +
+    '<p style="color:#475569;line-height:1.6">Estimado/a ' + esc(roleLabel) + ':</p>' +
+    '<table width="100%" cellpadding="8" style="border-collapse:collapse;background:#f8fafc;margin:14px 0">' +
+    '<tr><td style="color:#64748b">Numero</td><td style="text-align:right;font-weight:700">' + esc(request.number) + '</td></tr>' +
+    '<tr><td style="color:#64748b">Cliente</td><td style="text-align:right">' + esc(request.clientName || 'Cliente') + '</td></tr>' +
+    '<tr><td style="color:#64748b">Servicio</td><td style="text-align:right">' + esc(request.serviceType) + '</td></tr>' +
+    '</table>' +
+    '<p style="color:#475569;font-size:13px;white-space:pre-wrap">' + esc((request.description || '').substring(0, 600)) + '</p>' +
+    button(APP_URL, 'Abrir SYSTEMHOME'));
+  return sendMail(to, 'SYSTEMHOME - Nueva solicitud ' + request.number, html,
+    'Nueva solicitud ' + request.number + ' de ' + (request.clientName || 'Cliente') + ': ' + request.description);
+}
+
+module.exports = {
+  isConfigured,
+  sendMail,
+  sendPasswordReset,
+  sendWelcome,
+  sendBudget,
+  sendNewRequestNotification,
+  APP_URL
+};
