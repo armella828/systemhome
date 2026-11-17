@@ -133,6 +133,53 @@ const Auth = {
     if (clientNameDisplay) clientNameDisplay.textContent = user.name || user.username;
   },
 
+  showForgotPassword() {
+    const modal = document.getElementById('forgotPasswordModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    const msg = document.getElementById('forgotMessage');
+    if (msg) msg.style.display = 'none';
+    const input = document.getElementById('forgotEmail');
+    if (input) setTimeout(() => input.focus(), 50);
+  },
+
+  hideForgotPassword() {
+    const modal = document.getElementById('forgotPasswordModal');
+    if (modal) modal.style.display = 'none';
+  },
+
+  async submitForgotPassword(event) {
+    event.preventDefault();
+    const email = (document.getElementById('forgotEmail')?.value || '').trim();
+    const msg = document.getElementById('forgotMessage');
+    if (!msg) return false;
+    msg.style.display = 'none';
+    try {
+      const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+      const resp = await fetch(base + '/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        msg.textContent = data.error || 'No se pudo enviar el correo.';
+        msg.style.display = 'block';
+        return false;
+      }
+      msg.textContent = data.message || 'Si el correo está registrado, enviamos las instrucciones.';
+      msg.style.display = 'block';
+      msg.style.color = '#065f46';
+      if (data.devToken) {
+        msg.innerHTML += '<br><small>Modo desarrollo: <a href="/reset-password?token=' + encodeURIComponent(data.devToken) + '">Abrir enlace de restablecimiento</a></small>';
+      }
+    } catch (err) {
+      msg.textContent = 'Error de conexión con el servidor.';
+      msg.style.display = 'block';
+    }
+    return false;
+  },
+
   showRegister() {
     document.getElementById('loginFormContainer').style.display = 'none';
     document.getElementById('registerFormContainer').style.display = 'block';

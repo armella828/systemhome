@@ -9,6 +9,8 @@ require('dotenv').config();
 
 const { db, initSchema, seedData, all, get, run } = require('./db');
 const { isCloudinaryConfigured, uploadBase64, saveUploadedFile } = require('./cloudinary');
+const recovery = require('./auth-recovery');
+const mailer = require('./mailer');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -644,6 +646,39 @@ app.post('/api/auth/register', (req, res) => {
   audit(req, 'registro_cliente', 'auth', 'user', user.id, null, { username: user.username });
   notifyAdmins('nuevo_cliente_registrado', 'Nuevo cliente registrado', `El cliente ${user.full_name} (${user.username}) ha creado su cuenta.`, { userId: user.id });
   res.status(201).json({ token, user: formatUser(user) });
+});
+
+// Recuperacion de contrasena por correo real
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Ingrese un correo electronico valido' });
+  }
+  try {
+    const result = await recovery.createResetRequest(db, email);
+    return res.json({ ok: true, message: 'Si el correo esta registrado, enviamos las instrucciones.', devToken: result.devToken });
+  } catch (err) {
+    console.error('forgot-password error:', err.message);
+    return res.status(500).json({ error: 'No se pudo procesar la solicitud' });
+  }
+});
+
+app.get('/api/auth/validate-reset', async (req, res) => {
+  const row = await recovery.validateToken(db, String(req.query.token || ''));
+  res.json({ valid: !!row });
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const token = String(req.body?.token || '');
+  const password = String(req.body?.password || '');
+  const result = await recovery.resetPassword(db, token, password, bcrypt);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  audit(req, 'password_reset', 'auth', 'user', null, null, null);
+  res.json({ ok: true, message: 'Contrasena actualizada. Ya puede ingresar.' });
+});
+
+app.get('/api/mail/status', authMiddleware, requireRole(['admin']), (req, res) => {
+  res.json({ configured: mailer.isConfigured() });
 });
 
 app.get('/api/me', authMiddleware, (req, res) => {
@@ -2560,6 +2595,7 @@ app.get('*', (req, res) => {
 // ARRANQUE E INICIALIZACIÓN
 // ============================================================
 initSchema();
+recovery.ensureTables(db, !!process.env.DATABASE_URL);
 seedData();
 detectStockAlerts();
 detectMaintenanceAlerts();

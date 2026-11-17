@@ -1,0 +1,11 @@
+/* SYSTEMHOME - Modal de recuperacion de contrasena */
+.modal-overlay{position:fixed;inset:0;background:rgba(4,15,30,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px}
+.modal-card{position:relative;background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(2,12,27,.35);width:100%;max-width:440px;padding:30px 32px}
+.modal-card h2{margin:0 0 8px;font-size:21px;color:#0b1f3a;font-family:Outfit,Inter,sans-serif}
+.modal-card p{margin:0 0 18px;color:#64748b;font-size:13.5px;line-height:1.6}
+.modal-card label{display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:7px}
+.modal-card input{width:100%;padding:12px 14px;border:1px solid #dbe3ec;border-radius:9px;font-size:14px;font-family:inherit;outline:none}
+.modal-card input:focus{border-color:#0e7490;box-shadow:0 0 0 3px rgba(14,116,144,.13)}
+.modal-close{position:absolute;top:12px;right:14px;background:none;border:0;font-size:26px;color:#94a3b8;cursor:pointer;line-height:1}
+.modal-close:hover{color:#0b1f3a}
+.modal-card .login-btn{width:100%;margin-top:16px;justify-content:center}

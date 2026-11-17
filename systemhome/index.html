@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- App Stylesheet -->
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/recovery.css">
+    <link rel="stylesheet" href="css/login-redesign.css">
 </head>
 
 <body>
@@ -28,8 +30,13 @@
                         <img src="assets/LOGO.png" alt="SYSTEMHOME" onerror="this.onerror=null; this.src='assets/logo.svg'">
                     </div>
                 </div>
-                <h1 class="login-title">SYSTEMHOME SECURITY</h1>
-                <p class="login-subtitle">Sistema de Control y Monitoreo</p>
+                <h1 class="login-title">SYSTEMHOME <span>SECURITY</span></h1>
+                <p class="login-subtitle">Acceda a su Panel de SystemHome — control y monitoreo de seguridad electrónica, climatización y redes.</p>
+                <div class="login-features">
+                    <span class="login-feature"><i></i> Acceso seguro</span>
+                    <span class="login-feature"><i></i> Portal de clientes</span>
+                    <span class="login-feature"><i></i> Gestión integral</span>
+                </div>
             </div>
 
             <!-- Access Cards -->
@@ -37,8 +44,8 @@
                 <!-- ============ LOGIN FORM ============ -->
                 <div class="login-access-card" id="loginFormContainer">
                     <div class="login-welcome">
-                        <h2>INICIO DE SESIÓN</h2>
-                        <p>Ingrese sus credenciales para acceder</p>
+                        <h2>INICIO DE SESIÓN SEGURO</h2>
+                        <p>Ingrese sus credenciales para acceder a su panel</p>
                     </div>
 
                     <form id="loginForm" onsubmit="return Auth.handleLogin(event)">
@@ -67,7 +74,7 @@
                     </form>
 
                     <div class="login-register-link">
-                        <p><a href="#" onclick="event.preventDefault(); alert('Función de recuperación de contraseña en desarrollo')">¿Olvidó su contraseña?</a></p>
+                        <p><a href="#" onclick="event.preventDefault(); Auth.showForgotPassword(); return false;">¿Olvidó su contraseña?</a></p>
                         <p style="margin-top: 8px;"><a href="#" onclick="Auth.showRegister(); return false;">Crear una cuenta</a></p>
                     </div>
 
@@ -130,6 +137,22 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- ==================== MODAL: RECUPERAR CONTRASEÑA ==================== -->
+    <div class="modal-overlay" id="forgotPasswordModal" style="display:none;">
+      <div class="modal-card">
+        <button class="modal-close" onclick="Auth.hideForgotPassword()" aria-label="Cerrar">&times;</button>
+        <h2>Recuperar contraseña</h2>
+        <p>Ingrese su correo electrónico. Le enviaremos un enlace seguro para restablecer su contraseña.</p>
+        <form onsubmit="return Auth.submitForgotPassword(event)">
+          <label for="forgotEmail">Correo electrónico</label>
+          <input type="email" id="forgotEmail" placeholder="su@correo.com" required autocomplete="email">
+          <div id="forgotMessage" class="login-error" style="display:none;"></div>
+          <button type="submit" class="login-btn login-btn-admin">Enviar enlace de recuperación</button>
+        </form>
+        <div class="login-register-link"><p><a href="#" onclick="event.preventDefault(); Auth.hideForgotPassword(); return false;">Volver al inicio de sesión</a></p></div>
+      </div>
     </div>
 
     <!-- ==================== ADMIN & OPERATIONAL PORTAL ==================== -->
