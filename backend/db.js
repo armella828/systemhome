@@ -14,64 +14,31 @@ if (isPostgres) {
   // server.js doesn't need any changes.
   // ============================================================
   const { Worker } = require('worker_threads');
-  const workerScript = `
-    const { parentPort } = require('worker_threads');
-    const { Pool } = require('pg');
+  // Atomics.wait bloquea el event loop principal: la respuesta debe escribirse
+  // directamente en memoria compartida, no via callbacks on('message').
+  const pgWorker = new Worker(path.join(__dirname, 'pg-worker.js'));
+  const CTRL = new Int32Array(new SharedArrayBuffer(8)); // [0]=listo, [1]=longitud
+  const DATA = new SharedArrayBuffer(16 * 1024 * 1024);
+  let workerFatal = null;
 
-    const conn = process.env.DATABASE_URL || '';
-    const needsSSL = /sslmode=require|render\.com|neon\.tech|supabase|elephantsql|heroku/i.test(conn);
-    const pool = new Pool({
-      connectionString: conn,
-      ...(needsSSL ? { ssl: { rejectUnauthorized: false } } : {}),
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
-
-    pool.on('error', (err) => console.error('PG pool error:', err.message));
-
-    parentPort.on('message', async ({ id, sql, params }) => {
-      try {
-        const result = await pool.query(sql, params || []);
-        parentPort.postMessage({ id, rows: result.rows || [], rowCount: result.rowCount || 0 });
-      } catch (err) {
-        parentPort.postMessage({ id, error: err.message, rows: [], rowCount: 0 });
-      }
-    });
-  `;
-
-  const pgWorker = new Worker(workerScript, { eval: true });
-  const pendingRequests = new Map();
-  let nextId = 1;
-
-  pgWorker.on('message', ({ id, rows, rowCount, error }) => {
-    const pending = pendingRequests.get(id);
-    if (pending) {
-      pendingRequests.delete(id);
-      pending.result = { rows, rowCount, error };
-      pending.done = true;
-      const sab = pending.sab;
-      Atomics.store(sab, 0, 1);
-      Atomics.notify(sab, 0);
-    }
-  });
-
-  pgWorker.on('error', (err) => {
-    console.error('PG Worker thread error:', err.message);
+  pgWorker.on('error', (err) => { workerFatal = err.message; });
+  pgWorker.on('exit', (code) => {
+    if (code !== 0) workerFatal = `PG Worker terminó inesperadamente (código ${code})`;
   });
 
   function pgQuerySync(sql, params = []) {
-    const id = nextId++;
-    const sab = new SharedArrayBuffer(4);
-    const flag = new Int32Array(sab);
-    const pending = { sab, done: false, result: null };
-    pendingRequests.set(id, pending);
-    pgWorker.postMessage({ id, sql, params });
-    Atomics.wait(flag, 0, 0);
-    if (pending.result.error) {
-      throw new Error(pending.result.error);
+    Atomics.store(CTRL, 0, 0);
+    Atomics.store(CTRL, 1, 0);
+    pgWorker.postMessage({ sql, params, ctrlSab: CTRL.buffer, dataSab: DATA });
+    const status = Atomics.wait(CTRL, 0, 0, 15000);
+    if (status === 'timed-out') {
+      throw new Error('Timeout de PostgreSQL (15s): ' + sql.slice(0, 120) + (workerFatal ? ' | ' + workerFatal : ''));
     }
-    return pending.result;
+    const len = Atomics.load(CTRL, 1);
+    const json = Buffer.from(new Uint8Array(DATA, 0, len)).toString('utf8');
+    const result = JSON.parse(json);
+    if (result.error) throw new Error(result.error);
+    return result;
   }
 
   function convertPlaceholders(sql) {
@@ -586,7 +553,7 @@ function seedData() {
     run("DELETE FROM roles WHERE name IN ('gerente', 'supervisor', 'almacenista')");
   }
 
-  const roleCount = get('SELECT COUNT(*) as count FROM roles').count;
+  const roleCount = Number(get('SELECT COUNT(*) as count FROM roles').count);
   if (roleCount === 0) {
     if (isPostgres) {
       db.exec(`INSERT INTO roles (name, description) VALUES ('admin', 'Administrador con control total del sistema');
@@ -644,7 +611,7 @@ function seedData() {
     }
   }
 
-  const userCount = get('SELECT COUNT(*) as count FROM users').count;
+  const userCount = Number(get('SELECT COUNT(*) as count FROM users').count);
   if (userCount === 0) {
     const bcrypt = require('bcryptjs');
     const q = isPostgres ? '$1' : '?';
@@ -658,7 +625,7 @@ function seedData() {
       ['cliente', bcrypt.hashSync('cliente123', 10), 'Cliente Residencial', 'cliente@systemhome.com', '0981 666 666', 'cliente', now, now]);
   }
 
-  const serviceCount = get('SELECT COUNT(*) as count FROM services').count;
+  const serviceCount = Number(get('SELECT COUNT(*) as count FROM services').count);
   if (serviceCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const services = [
@@ -677,7 +644,7 @@ function seedData() {
     }
   }
 
-  const techCount = get('SELECT COUNT(*) as count FROM technicians').count;
+  const techCount = Number(get('SELECT COUNT(*) as count FROM technicians').count);
   if (techCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const techs = [
@@ -691,7 +658,7 @@ function seedData() {
     }
   }
 
-  const invCount = get('SELECT COUNT(*) as count FROM inventory_items').count;
+  const invCount = Number(get('SELECT COUNT(*) as count FROM inventory_items').count);
   if (invCount < 10) {
     run('DELETE FROM inventory_items');
     const q = isPostgres ? '$1' : '?';
@@ -720,7 +687,7 @@ function seedData() {
     }
   }
 
-  const clientCount = get('SELECT COUNT(*) as count FROM clients').count;
+  const clientCount = Number(get('SELECT COUNT(*) as count FROM clients').count);
   if (clientCount === 0) {
     const adminUserId = get("SELECT id FROM users WHERE username = 'admin'").id;
     const q = isPostgres ? '$1' : '?';
