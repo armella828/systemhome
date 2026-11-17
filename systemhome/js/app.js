@@ -87,6 +87,7 @@ const Auth = {
   login(user) {
     document.getElementById('loginPage').style.display = 'none';
     this.updateUserUI(user);
+    if (typeof RealtimeModule !== 'undefined') RealtimeModule.reconnect();
 
     if (this.isClientRole(user)) {
       document.getElementById('adminPortal').style.display = 'none';
@@ -101,6 +102,7 @@ const Auth = {
 
   logout() {
     if (!confirm('¿Desea cerrar la sesión actual?')) return;
+    if (typeof RealtimeModule !== 'undefined') RealtimeModule.disconnect();
     this.clearCurrentUser();
     document.getElementById('loginPage').style.display = 'flex';
     document.getElementById('adminPortal').style.display = 'none';
@@ -291,7 +293,7 @@ const App = {
   initNavigation() {
     const role = (Auth.getCurrentUser()?.role || '').toLowerCase();
     const allowedViews = {
-      admin: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'workorders', 'inventory', 'maintenances', 'alerts', 'intelligence', 'reports', 'audit', 'backup', 'users', 'settings', 'notifications'],
+      admin: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'workorders', 'inventory', 'maintenances', 'alerts', 'intelligence', 'reports', 'audit', 'backup', 'users', 'technicians', 'settings', 'notifications'],
       vendedor: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'inventory', 'reports', 'settings', 'notifications'],
       tecnico: ['workorders', 'maintenances', 'requests', 'alerts', 'notifications', 'settings']
     };
@@ -402,6 +404,7 @@ const App = {
       audit: { title: 'Registro de Auditoría', bread: 'Análisis / Auditoría' },
       backup: { title: 'Copias de Seguridad (Backup)', bread: 'Sistema / Backup' },
       users: { title: 'Gestión de Usuarios', bread: 'Sistema / Usuarios' },
+      technicians: { title: 'Gestión de Técnicos', bread: 'Sistema / Técnicos' },
       settings: { title: 'Configuración del Sistema', bread: 'Sistema / Configuración' },
       notifications: { title: 'Notificaciones', bread: 'Sistema / Notificaciones' }
     };
@@ -429,6 +432,7 @@ const App = {
     else if (view === 'audit') AuditModule.render(container);
     else if (view === 'backup') BackupModule.render(container);
     else if (view === 'users') this.renderUsers(container);
+    else if (view === 'technicians') this.renderTechnicians(container);
     else if (view === 'settings') this.renderSettings(container);
     else if (view === 'notifications') NotificationsModule.render(container);
   },
@@ -746,9 +750,177 @@ const App = {
     App.renderUsers(document.getElementById('users-view'));
   },
 
+  renderTechnicians(container) {
+    const technicians = DB.getTechnicians();
+    container.innerHTML = `
+      <div class="module-header">
+        <div>
+          <h2>Gestión de Técnicos</h2>
+          <p class="module-subtitle">Alta, edición y eliminación del equipo técnico y su acceso al sistema</p>
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="App.openTechnicianModal()">➕ Nuevo Técnico</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h3>Equipo Técnico</h3>
+          <span style="font-size:13px;color:var(--gray-500);">Total: <strong>${technicians.length}</strong></span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nombre</th><th>Especialidad</th><th>Teléfono</th><th>Correo</th><th>Usuario</th><th>Estado</th><th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${technicians.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--gray-500);">No hay técnicos registrados.</td></tr>' : technicians.map(t => `
+                  <tr>
+                    <td><strong>${this.escapeHtml(t.name)}</strong></td>
+                    <td>${this.escapeHtml(t.specialty || '-')}</td>
+                    <td>${this.escapeHtml(t.phone || '-')}</td>
+                    <td>${this.escapeHtml(t.email || '-')}</td>
+                    <td>${this.escapeHtml(t.username || 'Sin acceso')}</td>
+                    <td><span class="badge ${t.active ? 'badge-aprobado' : 'badge-inactive'}"><span class="dot"></span> ${t.active ? 'Activo' : 'Inactivo'}</span></td>
+                    <td>
+                      <div class="actions" style="display:flex;gap:4px;">
+                        <button class="btn btn-sm btn-secondary" onclick="App.openTechnicianModal(${t.id})" title="Editar">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="App.deleteTechnician(${t.id})" title="Eliminar">🗑️</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async openTechnicianModal(technicianId = null) {
+    let technician = null;
+    if (technicianId) {
+      technician = DB.getTechnicians().find(t => t.id === technicianId) || null;
+      if (!technician) return;
+    }
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.id = 'technicianModal';
+    modal.innerHTML = `
+      <div class="modal">
+        <div class="modal-header">
+          <h3>${technician ? 'Editar Técnico' : 'Nuevo Técnico'}</h3>
+          <button class="modal-close" onclick="document.getElementById('technicianModal').remove()">✕</button>
+        </div>
+        <form onsubmit="return App.saveTechnician(event, ${technician?.id || 'null'})">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="required">Nombre Completo</label>
+              <input type="text" id="techName" class="form-control" value="${this.escapeHtml(technician?.name || '')}" required>
+            </div>
+            <div class="form-group">
+              <label>Especialidad</label>
+              <input type="text" id="techSpecialty" class="form-control" value="${this.escapeHtml(technician?.specialty || '')}" placeholder="Ej: Cámaras y redes">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Teléfono / WhatsApp</label>
+                <input type="text" id="techPhone" class="form-control" value="${this.escapeHtml(technician?.phone || '')}">
+              </div>
+              <div class="form-group">
+                <label>Correo Electrónico</label>
+                <input type="email" id="techEmail" class="form-control" value="${this.escapeHtml(technician?.email || '')}">
+              </div>
+            </div>
+            ${technician?.user_id ? '' : `
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Usuario de acceso (opcional)</label>
+                  <input type="text" id="techUsername" class="form-control" placeholder="Ej: tecnico2">
+                </div>
+                <div class="form-group">
+                  <label>Contraseña (mín. 6)</label>
+                  <input type="password" id="techPassword" class="form-control" minlength="6" placeholder="••••••••">
+                </div>
+              </div>
+            `}
+            ${technician?.user_id ? `
+              <div class="form-group">
+                <label>Nueva contraseña (dejar en blanco para no cambiar)</label>
+                <input type="password" id="techPassword" class="form-control" minlength="6">
+              </div>
+            ` : ''}
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="techActive" ${technician ? (technician.active ? 'checked' : '') : 'checked'}>
+              <label for="techActive" style="margin:0;">Técnico activo</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('technicianModal').remove()">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btnSaveTechnician">💾 Guardar</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  },
+
+  async saveTechnician(event, technicianId) {
+    event.preventDefault();
+    const payload = {
+      name: document.getElementById('techName').value.trim(),
+      specialty: document.getElementById('techSpecialty').value.trim(),
+      phone: document.getElementById('techPhone').value.trim(),
+      email: document.getElementById('techEmail').value.trim(),
+      active: document.getElementById('techActive').checked,
+      username: document.getElementById('techUsername')?.value.trim() || undefined,
+      password: document.getElementById('techPassword')?.value || undefined
+    };
+    if (!payload.name) {
+      App.showToast('Ingrese el nombre del técnico', 'warning');
+      return false;
+    }
+    const btn = document.getElementById('btnSaveTechnician');
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+    try {
+      if (technicianId) await DB.updateTechnician(technicianId, payload);
+      else await DB.addTechnician(payload);
+      document.getElementById('technicianModal')?.remove();
+      App.showNotification(technicianId ? 'Técnico actualizado correctamente' : 'Técnico creado correctamente', 'success');
+      App.renderTechnicians(document.getElementById('technicians-view'));
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudo guardar el técnico', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar'; }
+    }
+    return false;
+  },
+
+  async deleteTechnician(technicianId) {
+    if (!confirm('¿Eliminar este técnico? Sus órdenes quedarán sin asignar, pero no se borrarán.')) return;
+    try {
+      await DB.deleteTechnician(technicianId);
+      App.showNotification('Técnico eliminado', 'info');
+      App.renderTechnicians(document.getElementById('technicians-view'));
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudo eliminar el técnico', 'error');
+    }
+  },
+
+  escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+  },
+
   renderSettings(container) {
     const user = Auth.getCurrentUser();
     const qrValue = App.getQRCode();
+    const isAdmin = (user?.role || '').toLowerCase() === 'admin';
+    const logoValue = localStorage.getItem('sh_logo') || 'assets/LOGO.png';
     container.innerHTML = `
       <div class="module-header">
         <div>
@@ -795,6 +967,27 @@ const App = {
           </div>
         </div>
 
+        ${isAdmin ? `
+        <div class="card">
+          <div class="card-header">
+            <h3>🖼️ Logo de la Empresa</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
+              Este logo aparece en el encabezado de los presupuestos PDF y en el portal del cliente.
+            </p>
+            <div id="companyLogoPreview" style="text-align:center;padding:12px;background:var(--gray-50);border-radius:8px;margin-bottom:16px;">
+              <img src="${logoValue}" alt="Logo de la empresa" style="max-height:90px;max-width:90%;object-fit:contain;">
+            </div>
+            <div class="form-group">
+              <label for="companyLogoFile">Subir logo (PNG o JPG · máx. 2 MB)</label>
+              <input type="file" id="companyLogoFile" class="form-control" accept="image/png,image/jpeg" onchange="App.handleLogoUpload(event)">
+            </div>
+            <button class="btn btn-secondary" onclick="App.resetCompanyLogo()">↩️ Restaurar logo original</button>
+          </div>
+        </div>
+        ` : ''}
+
         <div class="card">
           <div class="card-header">
             <h3>📱 QR de Cobranzas</h3>
@@ -814,8 +1007,74 @@ const App = {
             <button class="btn btn-primary" onclick="App.updateQRCode()">💾 Guardar QR de Cobranzas</button>
           </div>
         </div>
+
+        <div class="card" style="grid-column:1 / -1;">
+          <div class="card-header">
+            <h3>🎨 Iconos del Portal del Cliente</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
+              Personalice los dibujos de la bienvenida. Deje en blanco para usar los iconos SVG profesionales incluidos.
+            </p>
+            <div id="portalIconsEditor" class="form-row-3"></div>
+            <button class="btn btn-primary" onclick="App.savePortalIcons()">💾 Guardar iconos del portal</button>
+            <button class="btn btn-secondary" onclick="App.resetPortalIcons()">↩️ Restaurar originales</button>
+          </div>
+        </div>
       </div>
     `;
+    this.loadPortalIcons();
+  },
+
+  async loadPortalIcons() {
+    try {
+      const value = await DB.getSetting('portal_icons', {});
+      App.portalIcons = value && typeof value === 'object' ? value : {};
+    } catch (e) {
+      App.portalIcons = {};
+    }
+    const editor = document.getElementById('portalIconsEditor');
+    if (!editor) return;
+    const services = [
+      ['camaras', 'Cámaras'], ['ac', 'Aire Acondicionado'], ['alarma', 'Alarmas'],
+      ['cerca', 'Cerca Eléctrica'], ['video', 'Video Portero'], ['electricidad', 'Electricidad'],
+      ['cableado', 'Cableado'], ['redes', 'Redes']
+    ];
+    editor.innerHTML = services.map(([key, label]) => `
+      <div class="form-group">
+        <label>${label}</label>
+        <input type="text" class="form-control" id="portalIcon_${key}"
+          placeholder="URL o emoji (dejar vacío = SVG)"
+          value="${this.escapeHtml(App.portalIcons[key] || '')}">
+      </div>
+    `).join('');
+  },
+
+  async savePortalIcons() {
+    const keys = ['camaras', 'ac', 'alarma', 'cerca', 'video', 'electricidad', 'cableado', 'redes'];
+    const icons = {};
+    keys.forEach(key => {
+      const value = document.getElementById('portalIcon_' + key)?.value.trim();
+      if (value) icons[key] = value;
+    });
+    try {
+      await DB.saveSetting('portal_icons', icons);
+      App.portalIcons = icons;
+      App.showNotification('Iconos del portal actualizados', 'success');
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudieron guardar los iconos', 'error');
+    }
+  },
+
+  async resetPortalIcons() {
+    try {
+      await DB.saveSetting('portal_icons', {});
+      App.portalIcons = {};
+      this.loadPortalIcons();
+      App.showNotification('Iconos originales restaurados', 'info');
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudieron restaurar los iconos', 'error');
+    }
   },
 
   handleQRCodeUpload(event) {
@@ -871,7 +1130,63 @@ const App = {
     }
   },
 
-  initLogoUpload() {},
+  initLogoUpload() {
+    // El logo se carga desde localStorage o desde la configuración persistida en el servidor.
+    this.loadCompanyLogoFromServer();
+  },
+
+  async loadCompanyLogoFromServer() {
+    try {
+      const value = await DB.getSetting('company_logo', null);
+      if (typeof value === 'string' && value.startsWith('data:image') && !localStorage.getItem('sh_logo')) {
+        localStorage.setItem('sh_logo', value);
+        this.loadSettings();
+      }
+    } catch (e) {
+      console.warn('[SYSTEMHOME] No se pudo cargar el logo remoto:', e.message);
+    }
+  },
+
+  handleLogoUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!/^image\/(png|jpeg)$/i.test(file.type)) {
+      App.showToast('Use una imagen PNG o JPG (compatible con los PDF)', 'warning');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      App.showToast('El logo debe pesar menos de 2 MB', 'warning');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = String(reader.result || '');
+      localStorage.setItem('sh_logo', dataUrl);
+      App.loadSettings();
+      const preview = document.getElementById('companyLogoPreview');
+      if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="Logo de la empresa" style="max-height:90px;max-width:90%;object-fit:contain;">`;
+      try {
+        await DB.saveSetting('company_logo', dataUrl);
+        App.showToast('Logo guardado. Aparecerá en el sistema y en los presupuestos PDF.', 'success');
+      } catch (err) {
+        App.showToast('Logo aplicado localmente, pero no se pudo guardar en el servidor: ' + err.message, 'warning');
+      }
+    };
+    reader.readAsDataURL(file);
+  },
+
+  async resetCompanyLogo() {
+    localStorage.removeItem('sh_logo');
+    App.loadSettings();
+    const preview = document.getElementById('companyLogoPreview');
+    if (preview) preview.innerHTML = '<img src="assets/LOGO.png" alt="Logo SYSTEMHOME" style="max-height:90px;max-width:90%;object-fit:contain;">';
+    try {
+      await DB.saveSetting('company_logo', null);
+      App.showToast('Logo original restaurado', 'info');
+    } catch (err) {
+      App.showToast('Logo original restaurado localmente', 'warning');
+    }
+  },
 
   showNotification(message, type = 'info') {
     this.showToast(message, type);

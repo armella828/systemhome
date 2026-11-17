@@ -215,6 +215,11 @@ const DB = {
     return result?.request || null;
   },
 
+  // Una sola llamada asíncrona para crear cliente + solicitud + presupuesto.
+  submitQuoteRequest(data) {
+    return this._requestAsync('POST', '/requests', data);
+  },
+
   updateRequest(id, data) {
     const result = this._request('PUT', `/requests/${id}`, data);
     return result?.request || null;
@@ -241,9 +246,17 @@ const DB = {
     return result?.budget || null;
   },
 
+  addBudgetAsync(data) {
+    return this._requestAsync('POST', '/budgets', data);
+  },
+
   updateBudget(id, data) {
     const result = this._request('PUT', `/budgets/${id}`, data);
     return result?.budget || null;
+  },
+
+  updateBudgetAsync(id, data) {
+    return this._requestAsync('PUT', `/budgets/${id}`, data);
   },
 
   sendBudget(id) {
@@ -264,6 +277,15 @@ const DB = {
   exportBudgetPdf(id) {
     const token = this._getToken();
     window.open(`${this._baseUrl}/budgets/${id}/export?token=${encodeURIComponent(token || '')}`, '_blank');
+  },
+
+  downloadBudgetPdf(id) {
+    const token = this._getToken();
+    window.open(`${this._baseUrl}/budgets/${id}/export?download=1&token=${encodeURIComponent(token || '')}`, '_blank');
+  },
+
+  emailBudget(id, payload) {
+    return this._requestAsync('POST', `/budgets/${id}/email`, payload);
   },
 
   // --- Órdenes de Trabajo (Work Orders) ---
@@ -324,6 +346,18 @@ const DB = {
   getTechnicians() {
     const result = this._request('GET', '/technicians');
     return result?.technicians || [];
+  },
+
+  addTechnician(data) {
+    return this._requestAsync('POST', '/technicians', data);
+  },
+
+  updateTechnician(id, data) {
+    return this._requestAsync('PUT', `/technicians/${id}`, data);
+  },
+
+  deleteTechnician(id) {
+    return this._requestAsync('DELETE', `/technicians/${id}`);
   },
 
   // --- Inventario y Catálogo ---
@@ -403,14 +437,26 @@ const DB = {
     return this.getMaintenances();
   },
 
+  getMaintenanceWorkbench() {
+    return this._request('GET', '/maintenances/workbench') || { maintenances: [], clients: [], inventory: [] };
+  },
+
   addMaintenance(data) {
     const result = this._request('POST', '/maintenances', data);
     return result?.maintenance || null;
   },
 
+  addMaintenanceAsync(data) {
+    return this._requestAsync('POST', '/maintenances', data);
+  },
+
   updateMaintenance(id, data) {
     const result = this._request('PUT', `/maintenances/${id}`, data);
     return result?.maintenance || null;
+  },
+
+  updateMaintenanceAsync(id, data) {
+    return this._requestAsync('PUT', `/maintenances/${id}`, data);
   },
 
   completeMaintenance(id, data) {
@@ -556,6 +602,16 @@ const DB = {
   // Alias de compatibilidad (el módulo de notificaciones usa markNotificationRead)
   markNotificationRead(id) {
     return this.markNotificationAsRead(id);
+  },
+
+  // --- Configuración persistida ---
+  getSetting(key, fallback = null) {
+    const result = this._request('GET', `/settings/${encodeURIComponent(key)}`);
+    return result && result.value !== undefined ? result.value : fallback;
+  },
+
+  saveSetting(key, value) {
+    return this._requestAsync('PUT', `/settings/${encodeURIComponent(key)}`, { value });
   },
 
   // ============================================================

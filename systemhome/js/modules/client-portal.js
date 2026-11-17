@@ -4,13 +4,46 @@
    carrito de compras y solicitudes de servicio
    ============================================================ */
 
+const SH_SVG_ICON = (paths) => `<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+
+const SH_PORTAL_DEFAULT_ICONS = {
+    camaras: SH_SVG_ICON('<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/><circle cx="9.5" cy="12" r="2.5"/>'),
+    ac: SH_SVG_ICON('<rect x="2.5" y="4" width="19" height="7" rx="2"/><path d="M6 8h11"/><path d="M6 14c0 2-1 2-1 4"/><path d="M12 14c0 2-1 2-1 4"/><path d="M18 14c0 2-1 2-1 4"/>'),
+    alarma: SH_SVG_ICON('<path d="M12 3a6 6 0 0 0-6 6v4l-2 3h16l-2-3V9a6 6 0 0 0-6-6z"/><path d="M10 19a2 2 0 0 0 4 0"/><path d="M12 6v3"/>'),
+    cerca: SH_SVG_ICON('<path d="M3 18V9l3-2 3 2 3-2 3 2 3-2 3 2v9"/><path d="M3 13h18"/><path d="M12 3v4"/><circle cx="12" cy="7" r="1.5"/>'),
+    video: SH_SVG_ICON('<rect x="3" y="3" width="13" height="18" rx="2"/><circle cx="9.5" cy="9" r="2.5"/><path d="M5.5 16c.8-1.8 2.2-2.7 4-2.7s3.2.9 4 2.7"/><path d="m19 9 2-1v8l-2-1z"/>'),
+    electricidad: SH_SVG_ICON('<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>'),
+    cableado: SH_SVG_ICON('<rect x="3" y="4" width="6" height="6" rx="1"/><rect x="15" y="14" width="6" height="6" rx="1"/><path d="M9 7h4a3 3 0 0 1 3 3v4"/><path d="M6 10v4a3 3 0 0 0 3 3h6"/>'),
+    redes: SH_SVG_ICON('<circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4"/><path d="M6 16 11 11"/><path d="m18 16-5-5"/><path d="M5 20h14"/>')
+};
+
 const ClientPortal = {
     currentView: 'welcome',
     cartItems: [],
+    portalIcons: {},
 
     init() {
         this.loadCart();
+        this.loadPortalIcons();
         this.render();
+    },
+
+    loadPortalIcons() {
+        try {
+            const value = DB.getSetting('portal_icons', {});
+            this.portalIcons = value && typeof value === 'object' ? value : {};
+        } catch (e) {
+            this.portalIcons = {};
+        }
+    },
+
+    getIcon(key) {
+        const custom = this.portalIcons[key];
+        if (!custom) return SH_PORTAL_DEFAULT_ICONS[key] || SH_PORTAL_DEFAULT_ICONS.camaras;
+        if (/^data:image|^https?:\/\//i.test(custom)) {
+            return `<img src="${this.escapeHtml(custom)}" alt="" style="width:34px;height:34px;object-fit:contain;">`;
+        }
+        return `<span style="font-size:30px;line-height:1;">${this.escapeHtml(custom)}</span>`;
     },
 
     // ============================================================
@@ -161,42 +194,42 @@ const ClientPortal = {
 
         <div class="client-services-grid">
             <div class="client-service-card">
-                <div class="service-icon">📷</div>
+                <div class="service-icon">${this.getIcon('camaras')}</div>
                 <h4>Cámaras de Vigilancia</h4>
                 <p>Sistemas de videovigilancia HD, IP, inalámbricas y grabación 24/7 para tu protección.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">❄️</div>
+                <div class="service-icon">${this.getIcon('ac')}</div>
                 <h4>Aire Acondicionado</h4>
                 <p>Venta e instalación de equipos de aire acondicionado residencial y comercial.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">🔔</div>
+                <div class="service-icon">${this.getIcon('alarma')}</div>
                 <h4>Sistemas de Alarma</h4>
                 <p>Alarmas contra intrusos, sensores de movimiento y monitoreo inteligente.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">⚡</div>
+                <div class="service-icon">${this.getIcon('cerca')}</div>
                 <h4>Cercas Eléctricas</h4>
                 <p>Cercas de seguridad perimetral con sensores y alertas en tiempo real.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">📺</div>
+                <div class="service-icon">${this.getIcon('video')}</div>
                 <h4>Video Portero</h4>
                 <p>Sistemas de video portero con pantalla táctil, audio bidireccional y acceso remoto.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">🔌</div>
+                <div class="service-icon">${this.getIcon('electricidad')}</div>
                 <h4>Electricidad</h4>
                 <p>Instalaciones eléctricas residenciales, comerciales e industriales.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">🔗</div>
+                <div class="service-icon">${this.getIcon('cableado')}</div>
                 <h4>Cableado Estructurado</h4>
                 <p>Cableado profesional para datos, voz, video y redes corporativas.</p>
             </div>
             <div class="client-service-card">
-                <div class="service-icon">🌐</div>
+                <div class="service-icon">${this.getIcon('redes')}</div>
                 <h4>Redes e Internet</h4>
                 <p>Redes WiFi, fibra óptica, servidores e infraestructura de conectividad.</p>
             </div>
@@ -492,7 +525,7 @@ const ClientPortal = {
                     <div id="locationPreview" style="display:none;margin-top:8px;padding:10px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-200);font-size:13px;color:var(--gray-600);"></div>
                     <div class="form-note" style="font-size:12px;color:var(--gray-500);margin-top:6px;">Puedes usar tu ubicación actual o pegar un enlace de Google Maps para que sepamos exactamente dónde ir.</div>
                 </div>
-                <button class="btn btn-primary btn-lg" onclick="ClientPortal.submitRequest()" style="width:100%;justify-content:center;">
+                <button type="button" class="btn btn-primary btn-lg" id="btnSubmitRequest" onclick="ClientPortal.submitRequest()" style="width:100%;justify-content:center;">
                     📨 Enviar Solicitud
                 </button>
             </form>
@@ -665,9 +698,10 @@ const ClientPortal = {
         );
     },
 
-    submitRequest() {
+    async submitRequest() {
         const name = document.getElementById('clientReqName')?.value.trim();
         const phone = document.getElementById('clientReqPhone')?.value.trim();
+        const email = document.getElementById('clientReqEmail')?.value.trim() || '';
         const service = document.getElementById('clientReqService')?.value;
         const desc = document.getElementById('clientRequestDesc')?.value.trim();
         const address = document.getElementById('clientReqAddress')?.value.trim() || '';
@@ -682,39 +716,46 @@ const ClientPortal = {
         if (address) fullDesc += `\n\n📍 Dirección: ${address}`;
         if (location) fullDesc += `\n🗺️ Ubicación: ${location}`;
 
-        const budget = {
-            clientId: null,
-            clientName: name,
-            clientPhone: phone,
-            clientEmail: document.getElementById('clientReqEmail')?.value.trim() || '',
-            clientAddress: address,
-            clientLocation: location,
-            serviceType: service,
-            description: fullDesc,
-            items: [{ concept: desc, qty: 1, price: 0 }],
-            labor: 0,
-            discount: 0,
-            total: 0,
-            status: 'borrador',
-            source: 'client',
-        };
-
-        const existingClient = DB.getClients().find(c => c.phone === phone);
-        if (!existingClient) {
-            DB.addClient({
-                name: name,
-                phone: phone,
-                email: document.getElementById('clientReqEmail')?.value.trim() || '',
-                address: address,
-                ruc: '',
-                type: 'persona',
-            });
+        let latitude = null;
+        let longitude = null;
+        const coords = location.match(/(?:q=|@|ll=)?(-?\d{1,3}\.\d+)[,\s]+(-?\d{1,3}\.\d+)/);
+        if (coords) {
+            latitude = Number(coords[1]);
+            longitude = Number(coords[2]);
         }
 
-        DB.addBudget(budget);
-        App.showToast('✅ Solicitud enviada correctamente. Nos pondremos en contacto pronto.', 'success');
-        document.getElementById('clientRequestForm')?.reset();
-        this.renderRequests();
+        const btn = document.getElementById('btnSubmitRequest');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando...'; }
+
+        try {
+            const result = await DB.submitQuoteRequest({
+                clientId: null,
+                clientName: name,
+                clientPhone: phone,
+                clientEmail: email,
+                clientAddress: address,
+                serviceType: service,
+                description: fullDesc,
+                address,
+                reference: location,
+                latitude,
+                longitude,
+                priority: 'normal',
+                createBudget: true,
+                items: [{ concept: desc.substring(0, 120), qty: 1, price: 0 }]
+            });
+            const number = result?.request?.number || result?.budget?.number || '';
+            App.showToast(`✅ Solicitud ${number} enviada. El equipo ya fue notificado.`, 'success');
+            document.getElementById('clientRequestForm')?.reset();
+            document.getElementById('locationPreview')?.style.setProperty('display', 'none');
+            this.renderRequests();
+            this.renderQuotes();
+        } catch (err) {
+            console.error(err);
+            App.showToast(err.message || 'No se pudo enviar la solicitud. Intente nuevamente.', 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '📨 Enviar Solicitud'; }
+        }
     },
 
     getServiceLabel(type) {
