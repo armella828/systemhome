@@ -156,7 +156,7 @@ const BudgetsModule = {
                       <input type="number" class="form-control" id="itemQty" value="1" min="1">
                     </div>
                     <div class="form-group">
-                      <label>Precio Unit. (Gs)</label>
+                      <label>Precio Unit. (Bs.)</label>
                       <input type="number" class="form-control" id="itemPrice" value="0" min="0">
                     </div>
                   </div>
@@ -191,20 +191,20 @@ const BudgetsModule = {
 
               <div class="form-row-3">
                 <div class="form-group">
-                  <label>Mano de Obra (Gs)</label>
+                  <label>Mano de Obra (Bs.)</label>
                   <input type="number" class="form-control" id="budgetLabor" value="0" min="0">
                 </div>
                 <div class="form-group">
-                  <label>Descuento general (Gs)</label>
+                  <label>Descuento general (Bs.)</label>
                   <input type="number" class="form-control" id="budgetDiscount" value="0" min="0">
                 </div>
                 <div class="form-group">
-                  <label>Impuestos / gastos (Gs)</label>
+                  <label>Impuestos / gastos (Bs.)</label>
                   <input type="number" class="form-control" id="budgetTax" value="0" min="0">
                 </div>
               </div>
               <div class="form-group" style="text-align:right;">
-                <label style="font-size:16px;font-weight:700;color:var(--primary);">Total: <span id="budgetTotalDisplay">0</span> Gs</label>
+                <label style="font-size:16px;font-weight:700;color:var(--primary);">Total: <span id="budgetTotalDisplay">0</span> Bs.</label>
                 <input type="hidden" id="budgetTotal" value="0">
               </div>
 
@@ -273,7 +273,7 @@ const BudgetsModule = {
             const displayName = client?.name || b.prospectName || 'Prospecto';
             const recipient = client?.email || b.prospectEmail || '';
             const phone = client?.phone || b.prospectPhone || '';
-            const waText = encodeURIComponent(`Hola ${displayName}, le compartimos la cotización ${b.number} por Gs. ${Number(b.total || 0).toLocaleString('es-PY')}.`);
+            const waText = encodeURIComponent(`Hola ${displayName}, le compartimos la cotización ${b.number} por Bs. ${Number(b.total || 0).toLocaleString('es-PY')}.`);
             const waUrl = phone
                 ? `https://wa.me/591${String(phone).replace(/\D/g, '')}?text=${waText}`
                 : '';

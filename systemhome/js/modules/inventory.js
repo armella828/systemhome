@@ -27,7 +27,7 @@ const InventoryModule = {
       <div class="module-header">
         <div>
           <h2>Inventario y Catálogo de Equipos</h2>
-          <p class="module-subtitle">Administración de productos, precios en Guaraníes, stock, fotos e integración con el portal de clientes</p>
+          <p class="module-subtitle">Administración de productos, precios en Bolivianos (Bs.), stock, fotos e integración con el portal de clientes</p>
         </div>
         <div class="module-actions">
           <button class="btn btn-secondary" onclick="InventoryModule.refresh()" title="Recargar inventario">🔄 Actualizar</button>

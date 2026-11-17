@@ -144,7 +144,7 @@ const IntelligenceModule = {
     box.innerHTML = `
       <div class="intel-kpi">
         <div class="kpi-label">Facturación total</div>
-        <div class="kpi-value">₲ ${this.money(m.totalRevenue)}</div>
+        <div class="kpi-value">Bs. ${this.money(m.totalRevenue)}</div>
         <div class="kpi-hint">${m.salesCount} ventas registradas</div>
       </div>
       <div class="intel-kpi">
@@ -184,7 +184,7 @@ const IntelligenceModule = {
     box.innerHTML = `
       <div class="intel-bars">
         ${bars.map(b => `
-          <div class="intel-bar-col" title="${this.esc(b.label)}: ₲ ${this.money(b.value)}">
+          <div class="intel-bar-col" title="${this.esc(b.label)}: Bs. ${this.money(b.value)}">
             <div class="intel-bar ${b.forecast ? 'forecast' : ''}" style="height:${Math.max(2, (b.value / max) * 132)}px"></div>
             <div class="intel-bar-label">${this.esc(b.label)}</div>
           </div>`).join('')}
@@ -216,7 +216,7 @@ const IntelligenceModule = {
                 <td><span class="badge ${r.segment === 'VIP' ? 'badge-primary' : r.segment === 'Activo' ? 'badge-info' : 'badge-danger'}">${this.esc(r.segment)}</span></td>
                 <td>${r.recencyDays >= 9999 ? 'Sin compras' : r.recencyDays + ' días'}</td>
                 <td>${r.frequency}</td>
-                <td>₲ ${this.money(r.monetary)}</td>
+                <td>Bs. ${this.money(r.monetary)}</td>
                 <td><strong>${r.score}</strong></td>
               </tr>`).join('')}
           </tbody>

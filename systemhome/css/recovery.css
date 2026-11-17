@@ -1,5 +1,9 @@
 /* SYSTEMHOME - Modal de recuperacion de contrasena */
-.modal-overlay{position:fixed;inset:0;background:rgba(4,15,30,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px}
+/* Solo el modal de recuperación debe mostrarse con display:flex por defecto.
+   Si se aplica a .modal-overlay global, todos los modales tapan la app y
+   el botón Cancelar parece no funcionar. */
+#forgotPasswordModal{position:fixed;inset:0;background:rgba(4,15,30,.72);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px}
+#forgotPasswordModal.show{display:flex}
 .modal-card{position:relative;background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(2,12,27,.35);width:100%;max-width:440px;padding:30px 32px}
 .modal-card h2{margin:0 0 8px;font-size:21px;color:#0b1f3a;font-family:Outfit,Inter,sans-serif}
 .modal-card p{margin:0 0 18px;color:#64748b;font-size:13.5px;line-height:1.6}

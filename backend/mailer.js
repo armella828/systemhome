@@ -119,7 +119,7 @@ async function sendBudget(to, clientName, budget, pdfBuffer, message = '') {
     (message ? '<div style="background:#f0f9ff;border-left:4px solid #0e7490;padding:12px 16px;border-radius:6px;color:#334155;margin:16px 0;white-space:pre-wrap">' + esc(message) + '</div>' : '') +
     '<table width="100%" cellpadding="8" style="border-collapse:collapse;background:#f8fafc;border-radius:8px;margin:16px 0">' +
     '<tr><td style="color:#64748b;font-size:13px">Servicio</td><td style="text-align:right;font-weight:600">' + esc(budget.serviceType || 'Servicio tecnico') + '</td></tr>' +
-    '<tr><td style="color:#64748b;font-size:13px">Total</td><td style="text-align:right;font-weight:700;color:#0e7490">Gs. ' + money(budget.total) + '</td></tr>' +
+    '<tr><td style="color:#64748b;font-size:13px">Total</td><td style="text-align:right;font-weight:700;color:#0e7490">Bs. ' + money(budget.total) + '</td></tr>' +
     (budget.validUntil ? '<tr><td style="color:#64748b;font-size:13px">Valido hasta</td><td style="text-align:right">' + esc(budget.validUntil) + '</td></tr>' : '') +
     '</table>' +
     '<p style="color:#475569;font-size:13px">El detalle completo se encuentra en el PDF adjunto. Si desea aprobar o consultar, responda a este correo o escribanos al WhatsApp +591 64595762.</p>' +
@@ -136,7 +136,7 @@ async function sendBudget(to, clientName, budget, pdfBuffer, message = '') {
   }
 
   const text = 'Hola ' + (clientName || 'Cliente') + ',\n\n' +
-    'Adjuntamos la cotizacion ' + budget.number + ' por Gs. ' + money(budget.total) + '.\n' +
+    'Adjuntamos la cotizacion ' + budget.number + ' por Bs. ' + money(budget.total) + '.\n' +
     (message ? message + '\n\n' : '') +
     'Consultas: WhatsApp +591 64595762.\n\nSYSTEMHOME Security';
 

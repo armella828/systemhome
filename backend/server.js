@@ -513,11 +513,11 @@ function renderBudgetPdf(doc, budget, client) {
   const tax = Number(budget.tax || 0);
   const total = Number(budget.total || 0);
   doc.fontSize(9).fillColor('#334155');
-  if (labor) doc.text(`Mano de obra / instalacion: Gs. ${money(labor)}`, 330, doc.y, { align: 'right', width: 225 });
-  if (tax) doc.text(`Impuestos / gastos: Gs. ${money(tax)}`, 330, doc.y, { align: 'right', width: 225 });
-  if (discount) doc.text(`Descuento: -Gs. ${money(discount)}`, 330, doc.y, { align: 'right', width: 225 });
+  if (labor) doc.text(`Mano de obra / instalacion: Bs. ${money(labor)}`, 330, doc.y, { align: 'right', width: 225 });
+  if (tax) doc.text(`Impuestos / gastos: Bs. ${money(tax)}`, 330, doc.y, { align: 'right', width: 225 });
+  if (discount) doc.text(`Descuento: -Bs. ${money(discount)}`, 330, doc.y, { align: 'right', width: 225 });
   doc.moveDown(0.5);
-  doc.fontSize(13).fillColor('#0e7490').text(`TOTAL: Gs. ${money(total)}`, 330, doc.y, { align: 'right', width: 225 });
+  doc.fontSize(13).fillColor('#0e7490').text(`TOTAL: Bs. ${money(total)}`, 330, doc.y, { align: 'right', width: 225 });
   doc.moveDown(1);
 
   if (budget.conditions) {
@@ -1497,7 +1497,7 @@ app.post('/api/budgets', authMiddleware, requireRole(['admin', 'vendedor']), (re
 
   if (clientId) {
     db.prepare('INSERT INTO client_history (client_id, entry_type, description, related_type, related_id, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(clientId, 'cotizacion_creada', `Cotización ${number} creada por valor de Gs. ${money(total)}`, 'budget', budget.id, now, req.user.id);
+      .run(clientId, 'cotizacion_creada', `Cotización ${number} creada por valor de Bs. ${money(total)}`, 'budget', budget.id, now, req.user.id);
   }
 
   audit(req, 'cotizacion_creada', 'budgets', 'budget', budget.id, null, { number, total });
