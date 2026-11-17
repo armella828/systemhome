@@ -1,6 +1,0 @@
-id,sale_id,client_id,payment_method,amount,cash_received,cash_change,qr_reference,qr_receipt,status,notes,created_by_user_id,created_at
-1,1,1,efectivo,1160000,1200000,40000,,,confirmado,,6,2026-08-15T20:27:50.670Z
-2,2,7,qr,45000,,,,,confirmado,,7,2026-08-15T20:42:48.855Z
-3,3,7,efectivo,120000,,,,,confirmado,,7,2026-08-15T22:15:44.727Z
-4,4,6,efectivo,239970,239970,0,,,confirmado,,6,2026-08-15T23:54:20.267Z
-5,5,7,qr,983000,,,iiii,,confirmado,,7,2026-08-16T02:18:53.233Z

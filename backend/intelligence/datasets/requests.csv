@@ -1,9 +1,0 @@
-id,number,client_id,user_id,service_id,service_type,description,address,latitude,longitude,reference,priority,status,created_at,updated_at,reviewed_at,reviewed_by_user_id
-1,SOL-0001,7,7,,C�maras de Vigilancia,Test de solicitud desde API,Av. Test 123,-25.2965,-57.5812,Casa blanca,normal,cotizando,2026-08-15T20:16:34.068Z,2026-08-16T15:37:23.690Z,2026-08-16T15:37:23.690Z,1
-2,SOL-0002,7,7,,C�maras de Vigilancia,Test GPS request,"GPS: -25.2965, -57.5812",-25.2965,-57.5812,Casa blanca,normal,cotizando,2026-08-15T20:26:47.954Z,2026-08-16T15:18:14.815Z,2026-08-16T15:18:14.815Z,1
-3,SOL-0003,7,7,1,Cámaras de Vigilancia,camaras,"GPS: -22.011238, -63.673689",-22.011238320084562,-63.67368936538697,,normal,cotizando,2026-08-15T20:44:08.963Z,2026-08-16T12:01:29.657Z,2026-08-16T12:01:29.657Z,6
-4,SOL-0004,7,7,1,Cámaras de Vigilancia,4 camaras,"GPS: -22.010707, -63.673553",-22.010706738141398,-63.67355273261932,,normal,cotizando,2026-08-15T22:19:47.993Z,2026-08-16T15:26:06.801Z,2026-08-16T15:26:06.801Z,1
-5,SOL-0005,7,7,3,Aire Acondicionado,un aire,"GPS: -22.010707, -63.673553",-22.010706738141398,-63.67355273261932,,normal,cotizando,2026-08-15T22:21:28.413Z,2026-08-16T12:01:15.666Z,2026-08-16T12:01:15.666Z,6
-6,SOL-0006,7,7,,Control de Acceso,jj,"GPS: -22.010854, -63.673568",-22.010853587742677,-63.67356815280355,porton negro,normal,cotizando,2026-08-15T23:51:18.707Z,2026-08-16T11:41:19.515Z,2026-08-16T11:41:19.515Z,1
-7,SOL-0007,7,7,7,Cableado Estructurado,cableado,"GPS: -22.010677, -63.673672",-22.01067723584905,-63.67367204981906,porton negro,normal,cotizando,2026-08-16T02:19:46.553Z,2026-08-16T11:40:58.953Z,2026-08-16T11:40:58.953Z,1
-8,SOL-0008,7,7,1,Cámaras de Vigilancia,5 camaras,"GPS: -22.010678, -63.673457",-22.010678137606522,-63.673456845952884,porton negro,normal,cotizando,2026-08-16T11:31:35.975Z,2026-08-16T15:37:10.930Z,2026-08-16T15:37:10.930Z,1
