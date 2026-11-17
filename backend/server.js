@@ -2,6 +2,7 @@ const express = require('express');
 const security = require('./security');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const PDFDocument = require('pdfkit');
@@ -23,7 +24,14 @@ security.configureSecurity(app);
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-app.use(express.static(path.join(__dirname, '..', 'systemhome')));
+app.use(express.static(path.join(__dirname, '..', 'systemhome'), {
+  // Evita que el navegador sirva JS/CSS viejo después de un despliegue.
+  setHeaders(res, filePath) {
+    if (/\.(html|js|css|json)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+}));
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 app.use('/uploads', express.static(UPLOAD_DIR));
@@ -1433,15 +1441,8 @@ app.get('/api/budgets/mine', authMiddleware, (req, res) => {
 });
 
 function validateBudgetContact(body, current = null) {
-  const clientId = body.clientId !== undefined ? body.clientId : current?.client_id;
-  const name = String(body.prospectName ?? current?.prospect_name ?? '').trim();
-  const phone = String(body.prospectPhone ?? current?.prospect_phone ?? '').trim();
-  const email = String(body.prospectEmail ?? current?.prospect_email ?? '').trim();
-  if (!clientId && !name && !phone && !email) {
-    return 'Seleccione un cliente registrado o ingrese nombre y teléfono/correo del cliente';
-  }
-  if (!clientId && !name) return 'Ingrese el nombre del cliente';
-  if (!clientId && !phone && !email) return 'Ingrese teléfono o correo para poder enviar la cotización';
+  // Cotizar sin cliente registrado es válido: se usa "Cliente ocasional".
+  // No se exige teléfono ni correo porque la cotización puede ir por WhatsApp.
   return null;
 }
 
@@ -1482,7 +1483,7 @@ app.post('/api/budgets', authMiddleware, requireRole(['admin', 'vendedor']), (re
     description || '', JSON.stringify(normalizedItems), Number(labor) || 0, Number(discount) || 0, Number(tax) || 0, Number(total) || 0,
     status, source, validUntil || '', conditions || '', observations || '', estimatedTime || '',
     finalAddress || '', finalLat || null, finalLng || null, reference || '',
-    prospectName || '', prospectPhone || '', prospectEmail || '', prospectRuc || '', now, now, req.user.id
+    prospectName || 'Cliente ocasional', prospectPhone || '', prospectEmail || '', prospectRuc || '', now, now, req.user.id
   );
 
   syncBudgetItems(result.lastInsertRowid, normalizedItems);
@@ -1550,7 +1551,7 @@ app.put('/api/budgets/:id', authMiddleware, requireRole(['admin', 'vendedor']), 
     latitude !== undefined ? latitude : current.latitude,
     longitude !== undefined ? longitude : current.longitude,
     reference !== undefined ? reference : current.reference,
-    prospectName !== undefined ? prospectName : current.prospect_name,
+    prospectName !== undefined ? (prospectName || 'Cliente ocasional') : (current.prospect_name || 'Cliente ocasional'),
     prospectPhone !== undefined ? prospectPhone : current.prospect_phone,
     prospectEmail !== undefined ? prospectEmail : current.prospect_email,
     prospectRuc !== undefined ? prospectRuc : current.prospect_ruc,
@@ -2168,6 +2169,53 @@ app.get('/api/workorders/:id/export', authMiddleware, (req, res) => {
 // ============================================================
 // INVENTARIO Y MOVIMIENTOS (SH-I02)
 // ============================================================
+const MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+function isPrivateImageHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '0.0.0.0' || h === '::1') return true;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+// Descarga la imagen externa y la guarda como data URL en PostgreSQL.
+// Evita que una URL deje de mostrar por hotlinking, mixed-content o caída del host.
+async function normalizeInventoryImage(imageUrl) {
+  const raw = String(imageUrl || '').trim();
+  if (!raw) return null;
+  if (!/^https?:\/\//i.test(raw)) return raw; // data:image/... o /uploads/...
+
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return raw;
+    if (isPrivateImageHost(parsed.hostname)) return raw;
+    // Solo se permiten IPs públicas si vienen por HTTPS.
+    if (net.isIP(parsed.hostname) && parsed.protocol !== 'https:') return raw;
+
+    const resp = await fetch(raw, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8000),
+      headers: { 'User-Agent': 'SYSTEMHOME-ImageFetch/1.0', Accept: 'image/*' }
+    });
+    if (!resp.ok) return raw;
+
+    const contentType = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!contentType.startsWith('image/')) return raw;
+
+    const declaredLength = Number(resp.headers.get('content-length') || 0);
+    if (declaredLength > MAX_REMOTE_IMAGE_BYTES) return raw;
+
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    if (!buffer.length || buffer.length > MAX_REMOTE_IMAGE_BYTES) return raw;
+
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+  } catch (error) {
+    console.warn('No se pudo incorporar la imagen remota; se conserva la URL original:', error.message);
+    return raw;
+  }
+}
+
 app.get('/api/catalog', (req, res) => {
   const rows = db.prepare('SELECT * FROM inventory_items WHERE active = 1 AND show_in_catalog = 1 ORDER BY id DESC').all();
   res.json({ catalog: rows.map(formatInventoryItem) });
@@ -2178,15 +2226,16 @@ app.get('/api/inventory', authMiddleware, (req, res) => {
   res.json({ inventory: rows.map(formatInventoryItem) });
 });
 
-app.post('/api/inventory', authMiddleware, requireRole(['admin', 'vendedor']), (req, res) => {
+app.post('/api/inventory', authMiddleware, requireRole(['admin', 'vendedor']), async (req, res) => {
   const { name, category, brand, model, stock = 0, minStock = 5, price = 0, description = '', features = '', badge = '', imageUrl = '', imagePath = '', showInCatalog = true } = req.body;
   if (!name) return res.status(400).json({ error: 'Nombre del producto requerido' });
 
+  const storedImageUrl = await normalizeInventoryImage(imageUrl);
   const now = new Date().toISOString();
   const result = db.prepare(`
     INSERT INTO inventory_items (name, category, brand, model, stock, min_stock, price, description, features, badge, image_url, image_path, show_in_catalog, active, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-  `).run(name.trim(), category || 'otro', brand || '', model || '', Number(stock) || 0, Number(minStock) || 5, Number(price) || 0, description || '', features || '', badge || null, imageUrl || null, imagePath || null, showInCatalog ? 1 : 0, now, now);
+  `).run(name.trim(), category || 'otro', brand || '', model || '', Number(stock) || 0, Number(minStock) || 5, Number(price) || 0, description || '', features || '', badge || null, storedImageUrl || null, imagePath || null, showInCatalog ? 1 : 0, now, now);
 
   const itemId = result.lastInsertRowid;
   // Registrar movimiento inicial si stock > 0
@@ -2203,12 +2252,13 @@ app.post('/api/inventory', authMiddleware, requireRole(['admin', 'vendedor']), (
   res.status(201).json({ inventoryItem: formatInventoryItem(item) });
 });
 
-app.put('/api/inventory/:id', authMiddleware, requireRole(['admin', 'vendedor']), (req, res) => {
+app.put('/api/inventory/:id', authMiddleware, requireRole(['admin', 'vendedor']), async (req, res) => {
   const itemId = Number(req.params.id);
   const current = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
   if (!current) return res.status(404).json({ error: 'Producto no encontrado' });
 
   const { name, category, brand, model, stock, minStock, price, description, features, badge, imageUrl, imagePath, showInCatalog } = req.body;
+  const storedImageUrl = imageUrl !== undefined ? await normalizeInventoryImage(imageUrl) : current.image_url;
   const now = new Date().toISOString();
 
   const newStock = stock !== undefined ? Math.max(0, Number(stock)) : current.stock;
@@ -2234,7 +2284,7 @@ app.put('/api/inventory/:id', authMiddleware, requireRole(['admin', 'vendedor'])
     description !== undefined ? description : current.description,
     features !== undefined ? features : current.features,
     badge !== undefined ? badge : current.badge,
-    imageUrl !== undefined ? imageUrl : current.image_url,
+    storedImageUrl !== undefined ? storedImageUrl : current.image_url,
     imagePath !== undefined ? imagePath : current.image_path,
     showInCatalog !== undefined ? (showInCatalog ? 1 : 0) : current.show_in_catalog,
     now,
@@ -2256,7 +2306,13 @@ app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vend
     const { filename, data, imageUrl } = req.body;
     
     if (imageUrl) {
-      db.prepare('UPDATE inventory_items SET image_url = ?, updated_at = ? WHERE id = ?').run(imageUrl.trim(), new Date().toISOString(), itemId);
+      const cleanUrl = String(imageUrl).trim();
+      const allowedImageUrl = /^(https?:\/\/|data:image\/(png|jpeg|webp|gif);base64,|\/uploads\/)/i.test(cleanUrl);
+      if (!allowedImageUrl) {
+        return res.status(400).json({ error: 'URL de imagen no válida. Use https://, data:image/... o /uploads/...' });
+      }
+      const storedUrl = await normalizeInventoryImage(cleanUrl);
+      db.prepare('UPDATE inventory_items SET image_url = ?, updated_at = ? WHERE id = ?').run(storedUrl, new Date().toISOString(), itemId);
       const updated = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(itemId);
       return res.json({ inventoryItem: formatInventoryItem(updated) });
     }
@@ -2284,7 +2340,8 @@ app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vend
         const savePath = path.join(invDir, safeName);
         fs.writeFileSync(savePath, Buffer.from(check.data, 'base64'));
         imagePath = `inventory/${safeName}`;
-        finalImageUrl = `/uploads/${imagePath}`;
+        // La data URL viaja dentro de PostgreSQL: sobrevive a reinicios y despliegues.
+        finalImageUrl = `data:${imgMime};base64,${check.data}`;
       }
     } else {
       const invDir = path.join(UPLOAD_DIR, 'inventory');
@@ -2293,7 +2350,7 @@ app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vend
       const savePath = path.join(invDir, safeName);
       fs.writeFileSync(savePath, Buffer.from(check.data, 'base64'));
       imagePath = `inventory/${safeName}`;
-      finalImageUrl = `/uploads/${imagePath}`;
+      finalImageUrl = `data:${imgMime};base64,${check.data}`;
     }
 
     db.prepare('UPDATE inventory_items SET image_path = ?, image_url = ?, updated_at = ? WHERE id = ?').run(imagePath, finalImageUrl, new Date().toISOString(), itemId);
