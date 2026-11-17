@@ -1,5 +1,5 @@
 const express = require('express');
-const cors = require('cors');
+const security = require('./security');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
@@ -16,22 +16,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-systemhome-2026';
 
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  process.env.FRONTEND_URL
-].filter(Boolean);
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.onrender.com')) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Permite acceso para desarrollo y pruebas
-    }
-  },
-  credentials: true
-}));
+// CORS estricto, cabeceras de seguridad y fail-fast de secretos
+security.configureSecurity(app);
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
@@ -53,6 +39,8 @@ function authMiddleware(req, res, next) {
   let token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) token = req.query.token || '';
   if (!token) return res.status(401).json({ error: 'Token de autenticación requerido' });
+  if (security.isRevoked(token)) return res.status(401).json({ error: 'Sesión cerrada. Inicie sesión nuevamente.' });
+  req.token = token;
 
   try {
     const decoded = jwt.verify(token, jwtSecret);
@@ -588,7 +576,7 @@ function verifyPassword(password, storedHash) {
   return false;
 }
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', security.loginLimiter, (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
 
@@ -614,6 +602,33 @@ app.post('/api/auth/login', (req, res) => {
   const token = jwt.sign({ id: user.id, username: user.username, role: user.role_name || 'cliente' }, jwtSecret, { expiresIn: '12h' });
   audit(req, 'login', 'auth', 'user', user.id, null, { username: user.username });
   res.json({ token, user: formatUser(user) });
+});
+
+// Cerrar sesion: revoca el token para que deje de ser valido
+app.post('/api/auth/logout', authMiddleware, (req, res) => {
+  security.revokeToken(req.token);
+  audit(req, 'logout', 'auth', 'user', req.user.id, null, { username: req.user.username });
+  res.json({ ok: true, message: 'Sesión cerrada correctamente' });
+});
+
+// Cambio de contraseña del usuario autenticado
+app.post('/api/auth/change-password', authMiddleware, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Complete la contraseña actual y la nueva' });
+  }
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres' });
+  }
+  const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+  if (!user || !verifyPassword(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+  }
+  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+    .run(bcrypt.hashSync(newPassword, 12), new Date().toISOString(), req.user.id);
+  security.revokeToken(req.token);
+  audit(req, 'password_changed', 'auth', 'user', req.user.id, null, {});
+  res.json({ ok: true, message: 'Contraseña actualizada. Inicie sesión nuevamente.' });
 });
 
 app.post('/api/auth/register', (req, res) => {
@@ -649,7 +664,7 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 // Recuperacion de contrasena por correo real
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', security.recoveryLimiter, async (req, res) => {
   const email = String(req.body?.email || '').trim();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'Ingrese un correo electronico valido' });
@@ -668,7 +683,7 @@ app.get('/api/auth/validate-reset', async (req, res) => {
   res.json({ valid: !!row });
 });
 
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', security.recoveryLimiter, async (req, res) => {
   const token = String(req.body?.token || '');
   const password = String(req.body?.password || '');
   const result = await recovery.resetPassword(db, token, password, bcrypt);
@@ -1024,14 +1039,15 @@ app.post('/api/requests/:id/files', authMiddleware, async (req, res) => {
     if (!requestRow) return res.status(404).json({ error: 'Solicitud no encontrada' });
 
     const { filename, mimeType, data } = req.body;
-    if (!filename || !data) return res.status(400).json({ error: 'Archivo no recibido' });
+    const check = security.validateUpload({ filename, mimeType, data });
+    if (!check.ok) return res.status(400).json({ error: check.error });
 
     let fileUrl;
-    let fileSize = Buffer.byteLength(data, 'base64');
+    let fileSize = check.size;
 
     if (isCloudinaryConfigured) {
       try {
-        const dataUri = data.startsWith('data:') ? data : `data:${mimeType || 'application/octet-stream'};base64,${data}`;
+        const dataUri = `data:${mimeType || 'application/octet-stream'};base64,${check.data}`;
         const uploadRes = await uploadBase64(dataUri, { folder: `systemhome/requests/${requestId}` });
         fileUrl = uploadRes.secure_url;
         fileSize = uploadRes.bytes || fileSize;
@@ -1041,7 +1057,7 @@ app.post('/api/requests/:id/files', authMiddleware, async (req, res) => {
         if (!fs.existsSync(reqDir)) fs.mkdirSync(reqDir, { recursive: true });
         const safeName = `${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
         const filePath = path.join(reqDir, safeName);
-        fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+        fs.writeFileSync(filePath, Buffer.from(check.data, 'base64'));
         fileUrl = `/uploads/requests/${requestId}/${safeName}`;
       }
     } else {
@@ -1049,7 +1065,7 @@ app.post('/api/requests/:id/files', authMiddleware, async (req, res) => {
       if (!fs.existsSync(reqDir)) fs.mkdirSync(reqDir, { recursive: true });
       const safeName = `${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
       const filePath = path.join(reqDir, safeName);
-      fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+      fs.writeFileSync(filePath, Buffer.from(check.data, 'base64'));
       fileUrl = `/uploads/requests/${requestId}/${safeName}`;
     }
 
@@ -1280,6 +1296,10 @@ app.get('/api/budgets/:id/export', authMiddleware, (req, res) => {
   const budgetId = Number(req.params.id);
   const budget = db.prepare(`SELECT b.*, s.name as service_name FROM budgets b LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   if (!budget) return res.status(404).json({ error: 'Cotización no encontrada' });
+  if (req.user.role === 'cliente') {
+    const clientId = getOrCreateClientIdForUser(req.user);
+    if (budget.client_id !== clientId) return res.status(403).json({ error: 'Acceso denegado a esta cotización' });
+  }
   const client = budget.client_id ? db.prepare('SELECT * FROM clients WHERE id = ?').get(budget.client_id) : null;
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
@@ -1636,6 +1656,10 @@ app.get('/api/workorders/:id/export', authMiddleware, (req, res) => {
   `).get(orderId);
 
   if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+  if (req.user.role === 'cliente') {
+    const clientId = getOrCreateClientIdForUser(req.user);
+    if (order.client_id !== clientId) return res.status(403).json({ error: 'Acceso denegado a esta orden' });
+  }
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
   res.setHeader('Content-Type', 'application/pdf');
@@ -1796,13 +1820,17 @@ app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vend
     }
 
     if (!filename || !data) return res.status(400).json({ error: 'Imagen no recibida' });
+    const imgExt = String(filename).toLowerCase().split('.').pop();
+    const imgMime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[imgExt] || 'image/jpeg';
+    const check = security.validateUpload({ filename, mimeType: imgMime, data });
+    if (!check.ok) return res.status(400).json({ error: check.error });
 
     let finalImageUrl;
     let imagePath = null;
 
     if (isCloudinaryConfigured) {
       try {
-        const dataUri = data.startsWith('data:') ? data : `data:image/jpeg;base64,${data}`;
+        const dataUri = `data:${imgMime};base64,${check.data}`;
         const uploadRes = await uploadBase64(dataUri, { folder: 'systemhome/inventory' });
         finalImageUrl = uploadRes.secure_url;
         imagePath = uploadRes.public_id;
@@ -1812,7 +1840,7 @@ app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vend
         if (!fs.existsSync(invDir)) fs.mkdirSync(invDir, { recursive: true });
         const safeName = `${itemId}-${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
         const savePath = path.join(invDir, safeName);
-        fs.writeFileSync(savePath, Buffer.from(data, 'base64'));
+        fs.writeFileSync(savePath, Buffer.from(check.data, 'base64'));
         imagePath = `inventory/${safeName}`;
         finalImageUrl = `/uploads/${imagePath}`;
       }
@@ -1821,7 +1849,7 @@ app.post('/api/inventory/:id/image', authMiddleware, requireRole(['admin', 'vend
       if (!fs.existsSync(invDir)) fs.mkdirSync(invDir, { recursive: true });
       const safeName = `${itemId}-${Date.now()}-${path.basename(filename).replace(/[^a-zA-Z0-9.-]/g, '_')}`;
       const savePath = path.join(invDir, safeName);
-      fs.writeFileSync(savePath, Buffer.from(data, 'base64'));
+      fs.writeFileSync(savePath, Buffer.from(check.data, 'base64'));
       imagePath = `inventory/${safeName}`;
       finalImageUrl = `/uploads/${imagePath}`;
     }
@@ -2022,6 +2050,11 @@ app.get('/api/invoices/:id/pdf', authMiddleware, (req, res) => {
   const invoiceId = Number(req.params.id);
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
   if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
+  // Un cliente solo puede descargar sus propias facturas
+  if (req.user.role === 'cliente') {
+    const clientId = getOrCreateClientIdForUser(req.user);
+    if (inv.client_id !== clientId) return res.status(403).json({ error: 'Acceso denegado a esta factura' });
+  }
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
   res.setHeader('Content-Type', 'application/pdf');
