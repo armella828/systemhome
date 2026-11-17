@@ -10,6 +10,9 @@
     "backup": "node backend/backup.js",
     "restore": "node backend/restore.js",
     "rotate-credentials": "node backend/rotate-credentials.js",
+    "test": "node tests/unit.test.js",
+    "test:api": "node tests/api.test.js",
+    "test:all": "npm run test && npm run test:api",
     "start:py": "python backend/server.py"
   },
   "dependencies": {

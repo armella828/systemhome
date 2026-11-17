@@ -37,8 +37,17 @@ function rateLimiter({ windowMs = 15 * 60 * 1000, max = 10, prefix = 'general' }
   };
 }
 
-const loginLimiter = rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, prefix: 'login' });
-const recoveryLimiter = rateLimiter({ windowMs: 60 * 60 * 1000, max: 5, prefix: 'recovery' });
+// Los limites por defecto son de produccion; pueden ampliarse solo en pruebas
+const loginLimiter = rateLimiter({
+  windowMs: Number(process.env.LOGIN_RATE_WINDOW_MS || 15 * 60 * 1000),
+  max: Number(process.env.LOGIN_RATE_MAX || 10),
+  prefix: 'login',
+});
+const recoveryLimiter = rateLimiter({
+  windowMs: Number(process.env.RECOVERY_RATE_WINDOW_MS || 60 * 60 * 1000),
+  max: Number(process.env.RECOVERY_RATE_MAX || 5),
+  prefix: 'recovery',
+});
 const apiLimiter = rateLimiter({ windowMs: 60 * 1000, max: 120, prefix: 'api' });
 
 // ---------- Revocacion de tokens (logout) ----------
