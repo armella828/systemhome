@@ -1,46 +1,43 @@
 /* ============================================================
-   SYSTEMHOME - Login redisenado (modelo: seguridad azul electrica)
-   Paleta: navy / azul tecnologico / celeste / turquesa
+   SYSTEMHOME - Login modelo imagen 1 (central, navy + cian)
+   Campos blancos, boton cian, one-page centrado
    ============================================================ */
-.login-page{position:relative;min-height:100vh;overflow:hidden;background:#020c1b;display:flex;align-items:center;justify-content:center;padding:32px 20px}
+.login-page{position:relative;min-height:100vh;overflow:hidden;background:#020c16;display:flex;align-items:center;justify-content:center;padding:28px 18px}
 .login-bg{position:absolute;inset:0;background:
-  radial-gradient(900px 520px at 78% 12%,rgba(8,202,230,.18),transparent 60%),
-  radial-gradient(700px 520px at 12% 88%,rgba(0,64,176,.35),transparent 60%),
-  linear-gradient(135deg,#020c1b 0%,#001030 45%,#002060 100%);}
-.login-bg::before,.login-bg::after{content:"";position:absolute;border-radius:50%;border:1px solid rgba(92,213,240,.12)}
-.login-bg::before{width:720px;height:720px;top:-280px;right:-180px;box-shadow:0 0 120px rgba(8,202,230,.10) inset}
-.login-bg::after{width:520px;height:520px;bottom:-220px;left:-120px;border-color:rgba(0,116,191,.25)}
-.login-container-centered{position:relative;z-index:2;width:100%;max-width:1100px;display:grid;grid-template-columns:1fr 440px;gap:60px;align-items:center}
-.login-brand-centered{text-align:left;padding-left:10px}
-.login-logo-area{display:flex;align-items:center;gap:16px;margin-bottom:22px}
-.login-logo{width:96px;height:96px;display:flex;align-items:center;justify-content:center;background:rgba(8,202,230,.08);border:1px solid rgba(92,213,240,.25);border-radius:20px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
-.login-logo img{max-width:74px;max-height:74px;object-fit:contain}
-.login-title{font-family:Outfit,Inter,sans-serif;font-size:clamp(38px,5vw,64px);font-weight:800;letter-spacing:1px;margin:0;color:#fff;line-height:1.02;text-shadow:0 8px 30px rgba(0,0,0,.4)}
-.login-title span{display:block;background:linear-gradient(90deg,#08cae6,#5cd5f0,#2dd4bf);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:.62em;letter-spacing:6px;margin-top:8px}
-.login-subtitle{color:#9fc4dd;font-size:16px;margin:20px 0 0;max-width:420px;line-height:1.6}
-.login-features{margin-top:34px;display:flex;flex-wrap:wrap;gap:10px}
-.login-feature{display:flex;align-items:center;gap:8px;padding:9px 13px;border-radius:999px;background:rgba(255,255,255,.055);border:1px solid rgba(92,213,240,.16);color:#cfe6f2;font-size:12.5px}
-.login-feature i{width:7px;height:7px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 10px #2dd4bf}
+  radial-gradient(620px 400px at 50% 8%,rgba(8,202,230,.16),transparent 62%),
+  radial-gradient(760px 520px at 50% 62%,rgba(0,40,90,.55),transparent 66%),
+  linear-gradient(180deg,#020c16 0%,#00101c 55%,#001020 100%);}
+.login-bg::before{content:"";position:absolute;left:50%;top:44%;width:520px;height:520px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(8,202,230,.10),transparent 68%);filter:blur(10px)}
+.login-container-centered{position:relative;z-index:2;width:100%;max-width:430px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:0}
+.login-brand-centered{width:100%;margin-bottom:22px}
+.login-logo-area{display:flex;justify-content:center;margin-bottom:14px}
+.login-logo{width:92px;height:92px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 18px rgba(8,202,230,.35))}
+.login-logo img{max-width:92px;max-height:92px;object-fit:contain}
+.login-title{font-family:Outfit,Inter,sans-serif;font-size:26px;font-weight:800;letter-spacing:1.5px;margin:0;color:#ffffff;text-shadow:0 4px 18px rgba(0,0,0,.5)}
+.login-title span{display:block;font-size:14px;letter-spacing:6px;margin-top:4px;color:#5cd5f0;font-weight:600}
+.login-subtitle{display:none}
+.login-features{display:none}
 .login-access{width:100%}
-.login-access-card{background:rgba(3,18,38,.72);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(92,213,240,.22);border-radius:20px;padding:34px 32px 28px;box-shadow:0 28px 80px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.03) inset}
-.login-welcome h2{margin:0;color:#fff;font-family:Outfit,sans-serif;font-size:24px;letter-spacing:.4px}
-.login-welcome p{margin:8px 0 26px;color:#8fb3cc;font-size:13.5px}
-.login-access-card .form-group label{color:#b9d6e8;font-size:12.5px;font-weight:600}
+.login-access-card{background:rgba(4,20,36,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(92,213,240,.10);border-radius:14px;padding:26px 24px 20px;box-shadow:0 18px 60px rgba(0,0,0,.45)}
+.login-welcome h2{margin:0;color:#ffffff;font-family:Outfit,sans-serif;font-size:17px;font-weight:700;letter-spacing:.6px}
+.login-welcome p{margin:7px 0 20px;color:#9fc4dd;font-size:12.5px}
+.login-access-card .form-group{margin-bottom:14px;text-align:left}
+.login-access-card .form-group label{display:none;color:#cfe6f2;font-size:12px;font-weight:600;margin-bottom:6px}
 .login-access-card .input-wrapper{position:relative}
-.login-access-card .form-control{width:100%;background:rgba(0,30,84,.55);border:1px solid rgba(92,213,240,.28);border-radius:10px;color:#fff;padding:13px 14px 13px 44px;font-size:14px;transition:.2s;outline:none}
-.login-access-card .form-control::placeholder{color:#7094ad}
-.login-access-card .form-control:focus{border-color:#08cae6;box-shadow:0 0 0 3px rgba(8,202,230,.16);background:rgba(0,30,84,.75)}
-.login-access-card .input-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;opacity:.85;filter:grayscale(.2)}
-.login-btn{display:flex;align-items:center;justify-content:center;position:relative;width:100%;padding:14px;border-radius:10px;border:0;color:#fff;font-weight:700;letter-spacing:.6px;cursor:pointer;background:linear-gradient(90deg,#003b8e,#08cae6 50%,#0074bf);box-shadow:0 10px 30px rgba(8,202,230,.28);transition:transform .15s,box-shadow .2s;margin-top:8px}
-.login-btn:hover{transform:translateY(-1px);box-shadow:0 14px 34px rgba(8,202,230,.4)}
+.login-access-card .form-control{width:100%;background:#ffffff;border:1px solid #d8e6ef;border-radius:6px;color:#0f172a;padding:12px 14px;font-size:14px;outline:none;box-shadow:0 0 0 0 rgba(8,202,230,0);transition:box-shadow .18s,border-color .18s}
+.login-access-card .form-control::placeholder{color:#64748b}
+.login-access-card .form-control:focus{border-color:#08cae6;box-shadow:0 0 0 3px rgba(8,202,230,.28)}
+.login-access-card .input-icon{display:none}
+.login-btn{display:flex;align-items:center;justify-content:center;width:100%;padding:13px;border-radius:6px;border:0;color:#ffffff;font-weight:700;font-size:14px;letter-spacing:1px;cursor:pointer;background:linear-gradient(90deg,#08cae6,#08b8dc);box-shadow:0 8px 22px rgba(8,202,230,.28);transition:transform .15s,filter .15s;margin-top:6px}
+.login-btn:hover{transform:translateY(-1px);filter:brightness(1.07)}
 .login-btn:active{transform:translateY(0)}
-.login-btn-client{background:linear-gradient(90deg,#0b1f3a,#2dd4bf)}
-.login-error{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fecaca;padding:10px 12px;border-radius:8px;font-size:13px;margin-top:12px}
-.login-register-link{margin-top:20px;text-align:center;color:#8fb3cc;font-size:13px}
+.login-btn-client{background:linear-gradient(90deg,#0e7490,#2dd4bf)}
+.login-error{background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.38);color:#fecaca;padding:9px 11px;border-radius:6px;font-size:12.5px;margin-top:10px;text-align:left}
+.login-register-link{margin-top:14px;text-align:center;color:#bcd8ea;font-size:12px}
 .login-register-link a{color:#5cd5f0;text-decoration:none;font-weight:600}
 .login-register-link a:hover{text-decoration:underline}
-.login-footer-text{margin-top:18px;text-align:center;color:#547794;font-size:11px;letter-spacing:.5px}
-.login-footer-text::before{content:"Powered by SystemHome Security - VI"}
+.login-register-link p{margin:6px 0}
+.login-footer-text{margin-top:16px;text-align:center;color:#7fa6c0;font-size:10.5px}
+.login-footer-text::before{content:"Desarrollado para SystemHome - VI"}
 .login-footer-text p{display:none}
-@media(max-width:900px){.login-container-centered{grid-template-columns:1fr;max-width:460px;gap:26px}.login-brand-centered{text-align:center;padding:0}.login-logo-area{justify-content:center}.login-subtitle{margin-left:auto;margin-right:auto}.login-features{justify-content:center}}
-@media(max-width:520px){.login-access-card{padding:26px 20px}.login-title{font-size:36px}.login-logo{width:74px;height:74px}}
+@media(max-width:480px){.login-access-card{padding:22px 18px}.login-title{font-size:22px}.login-logo,.login-logo img{width:76px;height:76px}}
