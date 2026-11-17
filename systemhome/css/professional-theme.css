@@ -1,0 +1,229 @@
+/* ============================================================
+   SYSTEMHOME - TEMA PROFESIONAL GLOBAL
+   Aplica a panel administrativo, portal de clientes y componentes.
+   Paleta: azul marino / azul tecnologico / celeste / turquesa
+   ============================================================ */
+:root {
+  --navy: #0b1f3a;
+  --navy-2: #0f2c50;
+  --tech: #0e7490;
+  --cyan: #08cae6;
+  --cyan-soft: #5cd5f0;
+  --turq: #2dd4bf;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --surface: #ffffff;
+  --canvas: #f4f7fb;
+  --radius: 14px;
+  --shadow: 0 4px 16px rgba(11, 31, 58, .07);
+  --shadow-lg: 0 16px 40px rgba(11, 31, 58, .12);
+}
+
+/* Fondo general limpio (sin marca de agua) */
+body {
+  background: var(--canvas) !important;
+  color: var(--ink);
+}
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+  background: linear-gradient(180deg, var(--navy) 0%, var(--navy-2) 100%) !important;
+  box-shadow: 4px 0 24px rgba(11, 31, 58, .18);
+}
+.sidebar-brand {
+  background: linear-gradient(135deg, rgba(8, 202, 230, .12), transparent) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, .08) !important;
+}
+.sidebar-brand .brand-text h1,
+.sidebar-brand .brand-text span { color: #fff !important; }
+.sidebar-nav a,
+.sidebar-nav .nav-link,
+.sidebar-nav li a {
+  color: #b9d4e8 !important;
+  border-radius: 9px !important;
+  transition: background .18s, color .18s, transform .18s !important;
+  margin: 2px 8px !important;
+  padding: 10px 14px !important;
+}
+.sidebar-nav a:hover,
+.sidebar-nav .nav-link:hover,
+.sidebar-nav li a:hover {
+  background: rgba(8, 202, 230, .12) !important;
+  color: #fff !important;
+  transform: translateX(2px);
+}
+.sidebar-nav a.active,
+.sidebar-nav .nav-link.active,
+.sidebar-nav li a.active {
+  background: linear-gradient(90deg, var(--tech), var(--cyan)) !important;
+  color: #fff !important;
+  box-shadow: 0 6px 16px rgba(8, 202, 230, .25) !important;
+}
+.sidebar-nav .nav-section-title,
+.sidebar-nav .nav-group-title,
+.sidebar-section-title {
+  color: #6f9cbb !important;
+  font-size: 11px !important;
+  letter-spacing: 1.2px !important;
+  text-transform: uppercase !important;
+}
+.sidebar-footer { border-top: 1px solid rgba(255,255,255,.08) !important; }
+
+/* ---------- Header ---------- */
+.header, .topbar {
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--line) !important;
+  box-shadow: var(--shadow) !important;
+}
+.header-left h2 { color: var(--navy) !important; font-weight: 700 !important; }
+.header-left .breadcrumb { color: var(--muted) !important; }
+.header-btn {
+  border-radius: 10px !important;
+  border: 1px solid var(--line) !important;
+  background: #fff !important;
+  color: var(--navy) !important;
+}
+.header-btn:hover { background: var(--canvas) !important; border-color: var(--cyan) !important; }
+
+/* ---------- Tarjetas y estadisticas ---------- */
+.card, .stat-card, .client-dash-card, .client-stat-card {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+  transition: transform .18s, box-shadow .18s !important;
+}
+.card:hover, .stat-card:hover, .client-dash-card:hover, .client-stat-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.card-header {
+  background: linear-gradient(180deg, #fbfdff, #fff) !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-radius: var(--radius) var(--radius) 0 0 !important;
+}
+.card-header h3 { color: var(--navy) !important; font-weight: 700 !important; }
+.stat-card::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: linear-gradient(180deg, var(--cyan), var(--tech));
+}
+.stat-card { position: relative; overflow: hidden; }
+
+/* ---------- Botones ---------- */
+.btn-primary, .btn-primary-gradient {
+  background: linear-gradient(90deg, var(--tech), var(--cyan)) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 9px !important;
+  box-shadow: 0 6px 16px rgba(14, 116, 144, .22) !important;
+  font-weight: 600 !important;
+}
+.btn-primary:hover { filter: brightness(1.07) !important; }
+.btn-secondary {
+  background: #fff !important;
+  border: 1px solid var(--line) !important;
+  color: var(--navy) !important;
+  border-radius: 9px !important;
+}
+.btn-danger { background: #ef4444 !important; border-radius: 9px !important; }
+
+/* ---------- Tablas ---------- */
+table { width: 100%; border-collapse: separate; border-spacing: 0; }
+thead th {
+  background: #f8fafc !important;
+  color: var(--navy) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: .4px !important;
+  text-transform: uppercase !important;
+  border-bottom: 2px solid var(--line) !important;
+  padding: 12px 14px !important;
+}
+tbody td { border-bottom: 1px solid var(--line) !important; padding: 11px 14px !important; }
+tbody tr:hover { background: #f8fbff !important; }
+
+/* ---------- Formularios ---------- */
+.form-control, input[type="text"], input[type="email"], input[type="password"],
+input[type="number"], input[type="date"], select, textarea {
+  border: 1px solid var(--line) !important;
+  border-radius: 9px !important;
+  padding: 10px 12px !important;
+  font-family: inherit !important;
+  transition: border-color .18s, box-shadow .18s !important;
+}
+.form-control:focus, input:focus, select:focus, textarea:focus {
+  border-color: var(--cyan) !important;
+  box-shadow: 0 0 0 3px rgba(8, 202, 230, .15) !important;
+  outline: none !important;
+}
+
+/* ---------- Portal de cliente ---------- */
+.client-portal { background: var(--canvas) !important; }
+.client-header {
+  background: linear-gradient(135deg, var(--navy), var(--tech)) !important;
+  box-shadow: 0 6px 24px rgba(11, 31, 58, .2) !important;
+}
+.client-header-inner { max-width: 1240px; margin: 0 auto; }
+.client-nav-btn {
+  color: #cfe6f2 !important;
+  border-radius: 9px !important;
+  transition: background .18s, color .18s !important;
+}
+.client-nav-btn:hover { background: rgba(255,255,255,.12) !important; color: #fff !important; }
+.client-nav-btn.active {
+  background: linear-gradient(90deg, var(--cyan), var(--turq)) !important;
+  color: var(--navy) !important;
+  font-weight: 700 !important;
+}
+.client-btn-logout { border: 1px solid rgba(255,255,255,.25) !important; border-radius: 9px !important; color: #fff !important; }
+.client-welcome {
+  background: linear-gradient(135deg, var(--navy), var(--tech)) !important;
+  border-radius: var(--radius) !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.client-dash-hero {
+  background: linear-gradient(135deg, var(--navy), var(--tech)) !important;
+  border-radius: var(--radius) !important;
+  color: #fff !important;
+}
+.client-service-card, .client-request-form {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+}
+.client-service-card .service-icon {
+  background: linear-gradient(135deg, rgba(8,202,230,.15), rgba(45,212,191,.15)) !important;
+  color: var(--tech) !important;
+  border-radius: 12px !important;
+}
+.client-stat-icon { color: var(--tech) !important; background: rgba(8,202,230,.12) !important; border-radius: 10px !important; }
+.client-footer { background: var(--navy) !important; color: #9fc4dd !important; }
+
+/* ---------- Modales ---------- */
+.modal {
+  border-radius: 16px !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.modal-header {
+  background: linear-gradient(135deg, var(--navy), var(--tech)) !important;
+  color: #fff !important;
+  border-radius: 16px 16px 0 0 !important;
+}
+
+/* ---------- Animaciones sutiles ---------- */
+@keyframes shFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.stat-card, .card, .client-service-card, .client-dash-card { animation: shFadeUp .35s ease both; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+  .sidebar { box-shadow: none !important; }
+  .header-left h2 { font-size: 18px !important; }
+}
