@@ -316,7 +316,9 @@ const App = {
       const secType = sec.dataset.section;
       if (secType === 'admin-only' && role !== 'admin') sec.style.display = 'none';
       if (secType === 'system-only' && role !== 'admin') sec.style.display = 'none';
-      if (secType === 'operations' && role === 'vendedor') sec.style.display = 'none';
+      // El vendedor sí debe ver Inventario (está en su lista permitida);
+      // solo se ocultan las operaciones técnicas que no tiene asignadas.
+      if (secType === 'operations' && role === 'vendedor') sec.style.display = 'block';
       if (secType === 'commercial' && role === 'tecnico') sec.style.display = 'none';
     });
   },
@@ -341,9 +343,12 @@ const App = {
     try { InventoryModule?.init?.(); } catch (e) {}
     try { MaintenancesModule?.init?.(); } catch (e) {}
     try { AlertsModule?.init?.(); } catch (e) {}
-    try { IntelligenceModule?.init?.(); } catch (e) {}
     try { ReportsModule?.init?.(); } catch (e) {}
-    try { AuditModule?.init?.(); } catch (e) {}
+    // Auditoría e Intelligence son exclusivos de admin: evitar 403 en otros roles.
+    if ((Auth.getCurrentUser()?.role || '').toLowerCase() === 'admin') {
+      try { IntelligenceModule?.init?.(); } catch (e) {}
+      try { AuditModule?.init?.(); } catch (e) {}
+    }
     try { NotificationsModule?.init?.(); } catch (e) {}
     this.updateNotificationsBadge();
   },

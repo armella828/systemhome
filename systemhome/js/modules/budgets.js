@@ -36,6 +36,9 @@ const BudgetsModule = {
           </select>
         </div>
         <div class="toolbar-right">
+          <button class="btn btn-secondary" onclick="BudgetsModule.quickQuote()" title="Cotizar sin seleccionar cliente ni crear venta">
+            ⚡ Cotización rápida
+          </button>
           <button class="btn btn-primary" onclick="BudgetsModule.openModal()">
             ➕ Nuevo Presupuesto
           </button>
@@ -95,7 +98,7 @@ const BudgetsModule = {
         ).join('')}
                   </select>
                   <small style="font-size:12px;color:var(--gray-500);">Deje vacío si la cotización es para un cliente que llegó por WhatsApp.</small>
-                  <div class="form-error" id="err-budget-client">Ingrese el nombre del cliente o seleccione uno registrado</div>
+                  <div class="form-error" id="err-budget-client"></div>
                 </div>
                 <div class="form-group">
                   <label class="required">Tipo de Servicio</label>
@@ -117,15 +120,15 @@ const BudgetsModule = {
 
               <div id="prospectFields" class="form-row">
                 <div class="form-group">
-                  <label class="required">Nombre del Cliente</label>
+                  <label>Nombre del Cliente (opcional)</label>
                   <input type="text" class="form-control" id="prospectName" placeholder="Ej: Juan Pérez">
                 </div>
                 <div class="form-group">
-                  <label class="required">Teléfono / WhatsApp</label>
+                  <label>Teléfono / WhatsApp (opcional)</label>
                   <input type="text" class="form-control" id="prospectPhone" placeholder="0981 123 456">
                 </div>
                 <div class="form-group">
-                  <label class="required">Correo Electrónico</label>
+                  <label>Correo Electrónico (opcional)</label>
                   <input type="email" class="form-control" id="prospectEmail" placeholder="cliente@correo.com">
                 </div>
               </div>
@@ -232,6 +235,7 @@ const BudgetsModule = {
           <div class="modal-footer">
             <button class="btn btn-secondary" onclick="BudgetsModule.closeModal()">Cancelar</button>
             <button class="btn btn-secondary" onclick="BudgetsModule.saveDraft()">📄 Guardar Borrador</button>
+            <button class="btn btn-info" onclick="BudgetsModule.saveAndDownload()" title="Solo cotizar: guarda y descarga el PDF sin crear venta">📄 Guardar y descargar PDF</button>
             <button class="btn btn-primary" onclick="BudgetsModule.saveAndSend()">📨 Guardar y Enviar</button>
           </div>
         </div>
@@ -288,7 +292,7 @@ const BudgetsModule = {
           <td>
             <div class="actions" style="display:flex;gap:4px;flex-wrap:wrap;">
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.view(${b.id})" title="Ver detalle">👁️</button>
-              <button class="btn btn-sm btn-secondary" onclick="DB.downloadBudgetPdf(${b.id})" title="Descargar PDF">📄 PDF</button>
+              <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.downloadPdf(${b.id})" title="Descargar PDF">📄 PDF</button>
               <button class="btn btn-sm btn-info" onclick="BudgetsModule.openEmailModal(${b.id})" title="Enviar por correo real con PDF">✉️ Correo</button>
               ${waUrl ? `<a href="${waUrl}" target="_blank" class="btn btn-sm btn-success" title="Compartir por WhatsApp">📱</a>` : ''}
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.edit(${b.id})" title="Editar">✏️</button>
@@ -495,7 +499,7 @@ const BudgetsModule = {
         });
         ['prospectName', 'prospectPhone', 'prospectEmail'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.required = visible;
+            if (el) el.required = false; // Datos de contacto opcionales: se puede cotizar sin cliente.
         });
     },
 
@@ -503,6 +507,53 @@ const BudgetsModule = {
         document.getElementById('budgetModal')?.classList.remove('show');
         this.currentBudgetId = null;
         this.budgetItems = [];
+    },
+
+    quickQuote() {
+        this.openModal();
+        const title = document.getElementById('budgetModalTitle');
+        if (title) title.textContent = '⚡ Cotización rápida (sin cliente)';
+        const client = document.getElementById('budgetClient');
+        if (client) client.value = '';
+        const name = document.getElementById('prospectName');
+        if (name) name.value = 'Cliente ocasional';
+        this.toggleProspectFields();
+        document.getElementById('budgetService')?.focus();
+    },
+
+    async downloadPdf(id) {
+        try {
+            const result = await DB.downloadBudgetPdf(id);
+            App.showToast(`PDF descargado: ${result.filename}`, 'success');
+        } catch (err) {
+            App.showToast(err.message || 'No se pudo descargar el PDF', 'error');
+        }
+    },
+
+    async saveAndDownload() {
+        if (!this.validate()) return;
+        const data = this.getFormData();
+        data.status = 'borrador';
+        const id = parseInt(document.getElementById('budgetId').value);
+        const btn = [...document.querySelectorAll('#budgetModal .modal-footer .btn')].find(b => b.textContent.includes('descargar'));
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando PDF...'; }
+        try {
+            const result = id
+                ? await DB.updateBudgetAsync(id, data)
+                : await DB.addBudgetAsync(data);
+            const savedId = result?.budget?.id || id || result?.id;
+            const budget = result?.budget || DB.getBudget(savedId);
+            this.closeModal();
+            this.render();
+            if (budget?.id) {
+                await this.downloadPdf(budget.id);
+                App.showToast(`Cotización ${budget.number} lista. No se creó ninguna venta.`, 'success');
+            }
+        } catch (err) {
+            App.showToast(err.message || 'No se pudo guardar la cotización', 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '📄 Guardar y descargar PDF'; }
+        }
     },
 
     validate() {
@@ -518,24 +569,8 @@ const BudgetsModule = {
             serviceErr?.classList.remove('show');
         }
 
-        const clientId = parseInt(document.getElementById('budgetClient')?.value) || null;
-        if (!clientId) {
-            const name = document.getElementById('prospectName')?.value.trim() || '';
-            const phone = document.getElementById('prospectPhone')?.value.trim() || '';
-            const email = document.getElementById('prospectEmail')?.value.trim() || '';
-            const err = document.getElementById('err-budget-client');
-            let message = '';
-            if (!name) message = 'Ingrese el nombre del cliente o seleccione uno registrado';
-            else if (!phone && !email) message = 'Ingrese teléfono o correo para enviar la cotización';
-            if (message) {
-                valid = false;
-                if (err) { err.textContent = message; err.classList.add('show'); }
-            } else {
-                err?.classList.remove('show');
-            }
-        } else {
-            document.getElementById('err-budget-client')?.classList.remove('show');
-        }
+        // El cliente registrado es opcional. Si no se carga, se usa "Cliente ocasional".
+        document.getElementById('err-budget-client')?.classList.remove('show');
 
         return valid;
     },
@@ -568,7 +603,7 @@ const BudgetsModule = {
             latitude: parseFloat(document.getElementById('budgetLatitude')?.value) || null,
             longitude: parseFloat(document.getElementById('budgetLongitude')?.value) || null,
             reference: document.getElementById('budgetReference')?.value || '',
-            prospectName: document.getElementById('prospectName')?.value.trim() || '',
+            prospectName: document.getElementById('prospectName')?.value.trim() || 'Cliente ocasional',
             prospectPhone: document.getElementById('prospectPhone')?.value.trim() || '',
             prospectEmail: document.getElementById('prospectEmail')?.value.trim() || '',
             prospectRuc: document.getElementById('prospectRuc')?.value.trim() || '',
@@ -698,7 +733,7 @@ const BudgetsModule = {
               </div>
 
               <div style="display:flex;gap:8px;margin-top:1.5rem;flex-wrap:wrap;">
-                <button class="btn btn-primary" onclick="DB.downloadBudgetPdf(${budget.id})">
+                <button class="btn btn-primary" onclick="BudgetsModule.downloadPdf(${budget.id})">
                   📥 Descargar PDF con logo
                 </button>
                 <button class="btn btn-info" onclick="this.closest('.modal-overlay').remove(); BudgetsModule.openEmailModal(${budget.id})">

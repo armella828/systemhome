@@ -6,6 +6,8 @@
 
 const SH_SVG_ICON = (paths) => `<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
+const SH_IMAGE_FALLBACK = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="180"><rect width="240" height="180" fill="#e8eef5"/><text x="120" y="105" text-anchor="middle" font-size="64">📦</text><text x="120" y="140" text-anchor="middle" font-size="13" fill="#64748b">Imagen no disponible</text></svg>');
+
 const SH_PORTAL_DEFAULT_ICONS = {
     camaras: SH_SVG_ICON('<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/><circle cx="9.5" cy="12" r="2.5"/>'),
     ac: SH_SVG_ICON('<rect x="2.5" y="4" width="19" height="7" rx="2"/><path d="M6 8h11"/><path d="M6 14c0 2-1 2-1 4"/><path d="M12 14c0 2-1 2-1 4"/><path d="M18 14c0 2-1 2-1 4"/>'),
@@ -35,6 +37,15 @@ const ClientPortal = {
         } catch (e) {
             this.portalIcons = {};
         }
+    },
+
+    productImage(item, extraStyle = '') {
+        const src = item.imageUrl || SH_IMAGE_FALLBACK;
+        const fallback = this.escapeHtml(SH_IMAGE_FALLBACK);
+        const style = `max-width:100%;max-height:120px;object-fit:contain;border-radius:10px;${extraStyle}`;
+        return `<img src="${this.escapeHtml(src)}" alt="${this.escapeHtml(item.name || 'Producto')}"
+            loading="lazy" referrerpolicy="no-referrer" style="${style}"
+            onerror="this.onerror=null;this.src='${fallback}'">`;
     },
 
     getIcon(key) {
@@ -170,26 +181,34 @@ const ClientPortal = {
         const logo = localStorage.getItem('sh_logo');
 
         container.innerHTML = `
-        <div class="client-welcome">
-            <div class="welcome-logo" id="clientWelcomeLogo" style="width:180px;height:180px;margin:0 auto 24px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, var(--primary), var(--primary-dark));border-radius:50%;box-shadow:0 8px 24px rgba(0,0,0,0.15);overflow:hidden;">
-                ${logo ? `<img src="${logo}" alt="SYSTEMHOME" style="width:100%;height:100%;object-fit:cover;">` : '<span style="font-size:48px;font-weight:800;color:white;">SH</span>'}
+        <div class="portal-hero">
+            <div class="portal-hero-copy">
+                <span class="portal-eyebrow">SEGURIDAD · CLIMATIZACIÓN · REDES</span>
+                <h2>Bienvenido a <strong>SYSTEMHOME</strong></h2>
+                <p>
+                    Protegemos lo que más importa. Encuentra cámaras, alarmas, aire acondicionado y soluciones
+                    tecnológicas con <strong>instalación profesional y garantía</strong>.
+                </p>
+                <div class="portal-hero-actions">
+                    <button class="portal-btn portal-btn-primary" onclick="ClientPortal.navigate('catalog')">📦 Explorar catálogo</button>
+                    <button class="portal-btn portal-btn-ghost" onclick="ClientPortal.navigate('requests')">📝 Pedir cotización</button>
+                </div>
+                <div class="portal-hero-contact">
+                    <a href="https://wa.me/59164595762" target="_blank" rel="noopener">💬 WhatsApp +591 64595762</a>
+                    <a href="tel:+59164595762">📞 Llamarnos</a>
+                </div>
             </div>
-            <h2 style="font-size:28px;font-weight:800;color:var(--gray-900);margin-bottom:12px;">Bienvenido a SYSTEMHOME</h2>
-            <p style="font-size:16px;line-height:1.7;color:var(--gray-600);max-width:700px;margin:0 auto 8px;">
-                Somos una empresa dedicada a brindar <strong>soluciones integrales en seguridad, tecnología y servicios eléctricos</strong>,
-                ofreciendo productos de calidad e instalaciones profesionales para proteger tu hogar, negocio o empresa.
-            </p>
-            <div style="margin-top:16px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap;">
-                <a href="tel:64595762" class="btn btn-primary" style="gap:8px;">
-                    📞 <strong>64595762</strong>
-                </a>
-                <button class="btn btn-secondary" onclick="ClientPortal.navigate('catalog')" style="gap:8px;">
-                    📦 Ver Catálogo
-                </button>
-                <button class="btn btn-secondary" onclick="ClientPortal.refresh()" style="gap:8px;" title="Actualizar datos">
-                    🔄 Actualizar
-                </button>
+            <div class="portal-hero-brand">
+                <div class="portal-hero-logo" id="clientWelcomeLogo">
+                    ${logo ? `<img src="${logo}" alt="SYSTEMHOME" onerror="this.onerror=null;this.src='assets/LOGO.png'">` : '<img src="assets/LOGO.png" alt="SYSTEMHOME">'}
+                </div>
+                <div class="portal-hero-badge">Soluciones integrales</div>
             </div>
+        </div>
+
+        <div class="portal-section-title">
+            <span>Nuestros servicios</span>
+            <small>Todo lo que necesitas en un solo lugar</small>
         </div>
 
         <div class="client-services-grid">
@@ -307,8 +326,7 @@ const ClientPortal = {
         <div class="catalog-item">
             <div class="catalog-item-img" style="background:linear-gradient(135deg, var(--gray-100), var(--gray-200));">
                 ${item.badge ? `<span class="cat-badge">${this.escapeHtml(item.badge)}</span>` : ''}
-                ${item.imageUrl ? 
-                    `<img src="${item.imageUrl}" alt="${this.escapeHtml(item.name)}" style="max-width:100%;max-height:120px;object-fit:cover;border-radius:8px;">` : 
+                ${item.imageUrl ? this.productImage(item) :
                     `<span style="font-size:64px;">${categoryIcons[item.category] || '📦'}</span>`}
             </div>
             <div class="catalog-item-info">
@@ -390,8 +408,7 @@ const ClientPortal = {
                 ${this.cartItems.map(item => `
                 <div class="client-cart-item">
                     <div class="cart-item-img">
-                        ${item.imageUrl ? 
-                            `<img src="${item.imageUrl}" alt="${this.escapeHtml(item.name)}">` :
+                        ${item.imageUrl ? this.productImage(item, 'max-height:64px;') :
                             `${categoryIcons[item.category] || '📦'}`
                         }
                     </div>

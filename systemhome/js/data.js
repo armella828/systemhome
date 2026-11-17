@@ -274,14 +274,38 @@ const DB = {
     return result?.budget || null;
   },
 
-  exportBudgetPdf(id) {
+  async fetchBudgetPdf(id, download = true) {
     const token = this._getToken();
-    window.open(`${this._baseUrl}/budgets/${id}/export?token=${encodeURIComponent(token || '')}`, '_blank');
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const resp = await fetch(`${this._baseUrl}/budgets/${id}/export?${download ? 'download=1' : 'download=0'}`, { headers });
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.json()).error || ''; } catch (e) { /* cuerpo no JSON */ }
+      throw new Error(detail || `No se pudo generar el PDF (HTTP ${resp.status})`);
+    }
+    const blob = await resp.blob();
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : `cotizacion-${id}.pdf`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return { filename, bytes: blob.size };
+  },
+
+  exportBudgetPdf(id) {
+    return this.fetchBudgetPdf(id, false);
   },
 
   downloadBudgetPdf(id) {
-    const token = this._getToken();
-    window.open(`${this._baseUrl}/budgets/${id}/export?download=1&token=${encodeURIComponent(token || '')}`, '_blank');
+    return this.fetchBudgetPdf(id, true);
   },
 
   emailBudget(id, payload) {
