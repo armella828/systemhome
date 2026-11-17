@@ -7,6 +7,9 @@
     "start": "node backend/server.js",
     "dev": "node backend/server.js",
     "migrate": "node backend/migrate-pg.js",
+    "backup": "node backend/backup.js",
+    "restore": "node backend/restore.js",
+    "rotate-credentials": "node backend/rotate-credentials.js",
     "start:py": "python backend/server.py"
   },
   "dependencies": {
