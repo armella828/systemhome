@@ -458,6 +458,25 @@ function initSchema() {
       created_by_user_id INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS intel_runs (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      started_at TEXT NOT NULL, finished_at TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      records_processed INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER, error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS intel_metrics (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+      key TEXT NOT NULL, value ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'},
+      payload TEXT, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS intel_insights (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+      category TEXT NOT NULL, title TEXT NOT NULL, detail TEXT,
+      score ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'}, created_at TEXT NOT NULL
+    );
   `;
 
   if (isPostgres) {

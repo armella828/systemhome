@@ -1,0 +1,6 @@
+id,sale_number,client_id,seller_id,subtotal,discount,total,payment_method,status,cash_received,cash_change,qr_reference,qr_receipt,notes,created_at,updated_at
+1,VTA-0001,1,6,1160000,0,1160000,efectivo,pagada,1200000,40000,,,Venta de prueba,2026-08-15T20:27:50.670Z,2026-08-15T20:27:50.670Z
+2,VTA-0002,7,,45000,0,45000,qr,pagada,,,,,Dirección de entrega: paraiso. Notas: ,2026-08-15T20:42:48.855Z,2026-08-15T20:42:48.855Z
+3,VTA-0003,7,,120000,0,120000,efectivo,pagada,,,,,Dirección de entrega: rrr. Notas: ,2026-08-15T22:15:44.727Z,2026-08-15T22:15:44.727Z
+4,VTA-0004,6,6,240000,30,239970,efectivo,pagada,239970,0,,,hhh,2026-08-15T23:54:20.267Z,2026-08-15T23:54:20.267Z
+5,VTA-0005,7,,983000,0,983000,qr,pagada,,,iiii,,Dirección de entrega: hhh. Notas: ,2026-08-16T02:18:53.233Z,2026-08-16T02:18:53.233Z

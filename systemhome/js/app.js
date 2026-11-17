@@ -291,7 +291,7 @@ const App = {
   initNavigation() {
     const role = (Auth.getCurrentUser()?.role || '').toLowerCase();
     const allowedViews = {
-      admin: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'workorders', 'inventory', 'maintenances', 'alerts', 'reports', 'audit', 'backup', 'users', 'settings', 'notifications'],
+      admin: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'workorders', 'inventory', 'maintenances', 'alerts', 'intelligence', 'reports', 'audit', 'backup', 'users', 'settings', 'notifications'],
       vendedor: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'inventory', 'reports', 'settings', 'notifications'],
       tecnico: ['workorders', 'maintenances', 'requests', 'alerts', 'notifications', 'settings']
     };
@@ -339,6 +339,7 @@ const App = {
     try { InventoryModule?.init?.(); } catch (e) {}
     try { MaintenancesModule?.init?.(); } catch (e) {}
     try { AlertsModule?.init?.(); } catch (e) {}
+    try { IntelligenceModule?.init?.(); } catch (e) {}
     try { ReportsModule?.init?.(); } catch (e) {}
     try { AuditModule?.init?.(); } catch (e) {}
     try { NotificationsModule?.init?.(); } catch (e) {}
@@ -396,6 +397,7 @@ const App = {
       inventory: { title: 'Inventario y Catálogo', bread: 'Operaciones / Inventario' },
       maintenances: { title: 'Programación de Mantenimientos', bread: 'Operaciones / Mantenimientos' },
       alerts: { title: 'Alertas del Sistema', bread: 'Operaciones / Alertas' },
+      intelligence: { title: 'SYSTEMHOME INTELLIGENCE', bread: 'Análisis / Ciencia de Datos' },
       reports: { title: 'Reportes y Métricas', bread: 'Análisis / Reportes' },
       audit: { title: 'Registro de Auditoría', bread: 'Análisis / Auditoría' },
       backup: { title: 'Copias de Seguridad (Backup)', bread: 'Sistema / Backup' },
@@ -422,6 +424,7 @@ const App = {
     else if (view === 'inventory') InventoryModule.render(container);
     else if (view === 'maintenances') MaintenancesModule.render(container);
     else if (view === 'alerts') AlertsModule.render(container);
+    else if (view === 'intelligence') IntelligenceModule.render(container);
     else if (view === 'reports') ReportsModule.render(container);
     else if (view === 'audit') AuditModule.render(container);
     else if (view === 'backup') BackupModule.render(container);

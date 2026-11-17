@@ -587,5 +587,25 @@ const DB = {
   formatCurrency(value) {
     const num = Number(value || 0);
     return num.toLocaleString('es-PY') + ' Bs';
+  },
+
+  // ============================================================
+  // SYSTEMHOME INTELLIGENCE
+  // ============================================================
+
+  getIntelligenceStatus() {
+    return this._request('GET', '/intelligence/status') || {};
+  },
+
+  getIntelligenceMetrics() {
+    return (this._request('GET', '/intelligence/metrics') || {}).metrics || [];
+  },
+
+  getIntelligenceInsights() {
+    return (this._request('GET', '/intelligence/insights') || {}).insights || [];
+  },
+
+  runIntelligence() {
+    return this._request('POST', '/intelligence/run');
   }
 };

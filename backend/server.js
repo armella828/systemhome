@@ -11,6 +11,7 @@ const { db, initSchema, seedData, all, get, run } = require('./db');
 const { isCloudinaryConfigured, uploadBase64, saveUploadedFile } = require('./cloudinary');
 const recovery = require('./auth-recovery');
 const mailer = require('./mailer');
+const intelligence = require('./intelligence');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -2615,6 +2616,32 @@ app.post('/api/notifications/:id/read', authMiddleware, (req, res) => {
 app.post('/api/notifications/read-all', authMiddleware, (req, res) => {
   db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ? OR user_id IS NULL').run(req.user.id);
   res.json({ ok: true });
+});
+
+// ============================================================
+// SYSTEMHOME INTELLIGENCE - Ciencia de datos
+// ============================================================
+app.get('/api/intelligence/status', authMiddleware, (req, res) => {
+  res.json({ run: intelligence.lastRun(), datasets: intelligence.listDatasets() });
+});
+
+app.get('/api/intelligence/metrics', authMiddleware, (req, res) => {
+  res.json({ metrics: intelligence.getMetrics() });
+});
+
+app.get('/api/intelligence/insights', authMiddleware, (req, res) => {
+  res.json({ insights: intelligence.getInsights() });
+});
+
+app.post('/api/intelligence/run', authMiddleware, requireRole(['admin']), (req, res) => {
+  try {
+    const result = intelligence.execute();
+    audit(req, 'intel_run', 'intelligence', 'run', result.runId, null, { records: result.recordsProcessed });
+    res.json(result);
+  } catch (err) {
+    console.error('Error en inteligencia:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============================================================

@@ -1,0 +1,8 @@
+id,name,ruc,address,street,number,neighborhood,city,reference,latitude,longitude,phone,email,client_type,active,created_at,updated_at,created_by_user_id
+1,María Gómez,1234567-8,Av. Mcal. López 100,,,,,,,,0981 010 101,maria@example.com,persona,1,2026-08-03T21:06:16.929934,2026-08-03T21:06:16.929934,1
+2,Cliente Prueba Flujo,9999999-9,Av. Test 123,,,,,,,,0981 999 999,test@test.com,persona,1,2026-08-03T21:17:14.417778+00:00,2026-08-03T21:17:14.417778+00:00,1
+3,Cliente Verificación,7777777-7,Test 456,,,,,,,,0981 777 777,verify@test.com,persona,1,2026-08-03T21:43:51.177449+00:00,2026-08-03T21:43:51.177449+00:00,1
+4,Cliente Verificación,363912-2,Test 456,,,,,,,,098473 244,verify@test.com,persona,1,2026-08-03T21:46:44.350899+00:00,2026-08-03T21:46:44.350899+00:00,1
+5,Cliente Verificacion Final,207800-1,Test 789,,,,,,,,098602 348,final@test.com,persona,1,2026-08-03T21:52:25.814267+00:00,2026-08-03T21:52:25.814267+00:00,1
+6,jose vargas rios,14574603,Avenida Jaime Paz Zamora,,,,,,,,75169244,jose@gmail.com,persona,1,2026-08-03T23:06:50.229392+00:00,2026-08-03T23:06:50.229392+00:00,1
+7,Cliente,CI-cliente-7,,,,,,,,,0981 666 666,cliente@systemhome.com,persona,1,2026-08-15T20:16:34.039Z,2026-08-15T20:16:34.039Z,7

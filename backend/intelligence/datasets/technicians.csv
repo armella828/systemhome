@@ -1,0 +1,4 @@
+id,name,specialty,phone,email,active,created_at,updated_at
+1,Carlos Mendoza,Cámaras y alarmas,0981 123 456,carlos@systemhome.com,1,2026-08-03T21:06:16.792804,2026-08-03T21:06:16.792804
+2,Ana López,Aire acondicionado y electricidad,0981 789 012,ana@systemhome.com,1,2026-08-03T21:06:16.792804,2026-08-03T21:06:16.792804
+3,Pedro Ramírez,Redes y cableado,0981 345 678,pedro@systemhome.com,1,2026-08-03T21:06:16.792804,2026-08-03T21:06:16.792804

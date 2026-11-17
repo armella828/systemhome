@@ -526,3 +526,37 @@ CREATE TABLE IF NOT EXISTS mail_log (
   error TEXT,
   created_at TEXT NOT NULL
 );
+
+-- ============================================================
+-- SYSTEMHOME INTELLIGENCE - Persistencia de ejecuciones
+-- ============================================================
+CREATE TABLE IF NOT EXISTS intel_runs (
+  id SERIAL PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  records_processed INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER,
+  error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS intel_metrics (
+  id SERIAL PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value DOUBLE PRECISION,
+  payload TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intel_metrics_run ON intel_metrics(run_id);
+
+CREATE TABLE IF NOT EXISTS intel_insights (
+  id SERIAL PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT,
+  score DOUBLE PRECISION,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intel_insights_run ON intel_insights(run_id);

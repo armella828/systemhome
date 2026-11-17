@@ -1,0 +1,11 @@
+id,item_id,movement_type,quantity,stock_before,stock_after,reference_type,reference_id,notes,user_id,created_at
+4,5,venta,2,15,13,sale,1,Salida por venta VTA-0001,6,2026-08-15T20:27:50.670Z
+5,22,venta,1,60,59,sale,2,Salida por venta VTA-0002,7,2026-08-15T20:42:48.855Z
+6,23,entrada,15,0,15,inicial,,Stock inicial al crear producto,1,2026-08-15T22:07:54.067Z
+7,23,ajuste,5,15,20,ajuste_manual,,Ajuste directo de stock desde administración,1,2026-08-15T22:07:54.129Z
+8,10,venta,1,40,39,sale,3,Salida por venta VTA-0003,7,2026-08-15T22:15:44.727Z
+9,24,entrada,8,0,8,inicial,,Stock inicial al crear producto,1,2026-08-15T23:41:10.685Z
+10,10,venta,2,39,37,sale,4,Salida por venta VTA-0004,6,2026-08-15T23:54:20.267Z
+11,23,venta,1,20,19,sale,5,Salida por venta VTA-0005,7,2026-08-16T02:18:53.233Z
+12,24,venta,1,8,7,sale,5,Salida por venta VTA-0005,7,2026-08-16T02:18:53.233Z
+13,22,venta,2,59,57,sale,5,Salida por venta VTA-0005,7,2026-08-16T02:18:53.233Z
