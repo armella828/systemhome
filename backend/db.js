@@ -18,9 +18,11 @@ if (isPostgres) {
     const { parentPort } = require('worker_threads');
     const { Pool } = require('pg');
 
+    const conn = process.env.DATABASE_URL || '';
+    const needsSSL = /sslmode=require|render\.com|neon\.tech|supabase|elephantsql|heroku/i.test(conn);
     const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
+      connectionString: conn,
+      ...(needsSSL ? { ssl: { rejectUnauthorized: false } } : {}),
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
@@ -77,12 +79,19 @@ if (isPostgres) {
     return sql.replace(/\?/g, () => `$${++idx}`);
   }
 
+  // Los INSERT necesitan RETURNING para obtener lastInsertRowid (SQLite lo da gratis)
+  function withReturning(sql) {
+    const trimmed = sql.trim();
+    if (!/^INSERT\b/i.test(trimmed) || /\bRETURNING\b/i.test(trimmed)) return sql;
+    return trimmed.replace(/;?\s*$/, '') + ' RETURNING *';
+  }
+
   db = {
     prepare(sql) {
       return {
         run: (...args) => {
           const params = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
-          const converted = convertPlaceholders(sql);
+          const converted = convertPlaceholders(withReturning(sql));
           const result = pgQuerySync(converted, params);
           return {
             lastInsertRowid: result.rows?.[0]?.id || null,
@@ -122,7 +131,7 @@ if (isPostgres) {
   };
 
   run = (sql, params = []) => {
-    const converted = convertPlaceholders(sql);
+    const converted = convertPlaceholders(withReturning(sql));
     const result = pgQuerySync(converted, params);
     return {
       lastInsertRowid: result.rows?.[0]?.id || null,
