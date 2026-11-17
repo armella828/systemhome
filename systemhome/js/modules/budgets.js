@@ -292,7 +292,7 @@ const BudgetsModule = {
           <td>
             <div class="actions" style="display:flex;gap:4px;flex-wrap:wrap;">
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.view(${b.id})" title="Ver detalle">👁️</button>
-              <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.downloadPdf(${b.id})" title="Descargar PDF">📄 PDF</button>
+              <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.downloadPdf(${b.id}, '${b.number}')" title="Descargar PDF">📄 PDF</button>
               <button class="btn btn-sm btn-info" onclick="BudgetsModule.openEmailModal(${b.id})" title="Enviar por correo real con PDF">✉️ Correo</button>
               ${waUrl ? `<a href="${waUrl}" target="_blank" class="btn btn-sm btn-success" title="Compartir por WhatsApp">📱</a>` : ''}
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.edit(${b.id})" title="Editar">✏️</button>
@@ -521,9 +521,9 @@ const BudgetsModule = {
         document.getElementById('budgetService')?.focus();
     },
 
-    async downloadPdf(id) {
+    async downloadPdf(id, number = '') {
         try {
-            const result = await DB.downloadBudgetPdf(id);
+            const result = await DB.downloadBudgetPdf(id, number);
             App.showToast(`PDF descargado: ${result.filename}`, 'success');
         } catch (err) {
             App.showToast(err.message || 'No se pudo descargar el PDF', 'error');
@@ -546,7 +546,7 @@ const BudgetsModule = {
             this.closeModal();
             this.render();
             if (budget?.id) {
-                await this.downloadPdf(budget.id);
+                await this.downloadPdf(budget.id, budget.number);
                 App.showToast(`Cotización ${budget.number} lista. No se creó ninguna venta.`, 'success');
             }
         } catch (err) {
@@ -733,7 +733,7 @@ const BudgetsModule = {
               </div>
 
               <div style="display:flex;gap:8px;margin-top:1.5rem;flex-wrap:wrap;">
-                <button class="btn btn-primary" onclick="BudgetsModule.downloadPdf(${budget.id})">
+                <button class="btn btn-primary" onclick="BudgetsModule.downloadPdf(${budget.id}, '${budget.number}')">
                   📥 Descargar PDF con logo
                 </button>
                 <button class="btn btn-info" onclick="this.closest('.modal-overlay').remove(); BudgetsModule.openEmailModal(${budget.id})">

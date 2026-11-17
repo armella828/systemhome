@@ -304,8 +304,21 @@ const DB = {
     return this.fetchBudgetPdf(id, false);
   },
 
-  downloadBudgetPdf(id) {
-    return this.fetchBudgetPdf(id, true);
+  downloadBudgetPdf(id, number = '') {
+    // Enlace directo dentro del clic del usuario: evita que el navegador bloquee
+    // descargas programáticas después de un fetch asíncrono.
+    const token = this._getToken();
+    const filename = `cotizacion-${number || id}.pdf`;
+    const url = `${this._baseUrl}/budgets/${id}/export?download=1&token=${encodeURIComponent(token || '')}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 1500);
+    return Promise.resolve({ filename });
   },
 
   emailBudget(id, payload) {
