@@ -5,15 +5,15 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://systemhome-aa7v.onrender.com/api/$1"
+      "destination": "https://systemhome-backend.onrender.com/api/$1"
     },
     {
       "source": "/uploads/(.*)",
-      "destination": "https://systemhome-aa7v.onrender.com/uploads/$1"
+      "destination": "https://systemhome-backend.onrender.com/uploads/$1"
     },
     {
       "source": "/health",
-      "destination": "https://systemhome-aa7v.onrender.com/health"
+      "destination": "https://systemhome-backend.onrender.com/health"
     },
     {
       "source": "/(.*)",
