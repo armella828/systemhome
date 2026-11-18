@@ -732,20 +732,20 @@ const BudgetsModule = {
                 </div>
               </div>
 
-              <div style="display:flex;gap:8px;margin-top:1.5rem;flex-wrap:wrap;">
-                <button class="btn btn-primary" onclick="BudgetsModule.downloadPdf(${budget.id}, '${budget.number}')">
-                  📥 Descargar PDF con logo
-                </button>
-                <button class="btn btn-info" onclick="this.closest('.modal-overlay').remove(); BudgetsModule.openEmailModal(${budget.id})">
-                  ✉️ Enviar por correo
-                </button>
-                <a href="https://wa.me/591${String(displayPhone).replace(/\D/g, '')}?text=${waText}" target="_blank" class="btn btn-success">
-                  📱 Compartir por WhatsApp
-                </a>
-                <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">
-                  Cerrar
-                </button>
-              </div>
+            </div>
+            <div class="modal-footer" style="justify-content:flex-start;flex-wrap:wrap;box-shadow:0 -4px 14px rgba(2,12,27,.08);">
+              <button class="btn btn-primary" onclick="BudgetsModule.downloadPdf(${budget.id}, '${budget.number}')">
+                📥 Descargar PDF con logo
+              </button>
+              <button class="btn btn-info" onclick="this.closest('.modal-overlay').remove(); BudgetsModule.openEmailModal(${budget.id})">
+                ✉️ Enviar por correo
+              </button>
+              <a href="https://wa.me/591${String(displayPhone).replace(/\D/g, '')}?text=${waText}" target="_blank" class="btn btn-success">
+                📱 Compartir por WhatsApp
+              </a>
+              <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">
+                Cerrar
+              </button>
             </div>
           </div>
         `;
