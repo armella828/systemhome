@@ -4,7 +4,7 @@
    carrito de compras y solicitudes de servicio
    ============================================================ */
 
-const SH_SVG_ICON = (paths) => `<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const SH_SVG_ICON = (paths) => `<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
 const SH_IMAGE_FALLBACK = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="180"><rect width="240" height="180" fill="#e8eef5"/><text x="120" y="105" text-anchor="middle" font-size="64">📦</text><text x="120" y="140" text-anchor="middle" font-size="13" fill="#64748b">Imagen no disponible</text></svg>');
 
@@ -54,9 +54,9 @@ const ClientPortal = {
         // Los iconos nuevos se seleccionan como archivo y se guardan como data:image.
         // Se conservan http(s) y emoji solo por compatibilidad con valores anteriores.
         if (/^data:image|^https?:\/\//i.test(custom)) {
-            return `<img src="${this.escapeHtml(custom)}" alt="" style="width:34px;height:34px;object-fit:contain;">`;
+            return `<img src="${this.escapeHtml(custom)}" alt="" style="width:56px;height:56px;object-fit:contain;">`;
         }
-        return `<span style="font-size:30px;line-height:1;">${this.escapeHtml(custom)}</span>`;
+        return `<span style="font-size:48px;line-height:1;">${this.escapeHtml(custom)}</span>`;
     },
 
     // ============================================================

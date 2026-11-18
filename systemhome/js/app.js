@@ -1060,7 +1060,7 @@ const App = {
           </div>
           <div class="card-body">
             <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-              Seleccione la imagen de cada icono desde su equipo. Se optimiza a 64×64 px y se guarda en la base de datos;
+              Seleccione la imagen de cada icono desde su equipo. Se optimiza a 128×128 px y se guarda en la base de datos;
               <strong>no se aceptan URL externas</strong>. Deje un icono sin imagen para usar el SVG profesional incluido.
               Los iconos cargados antes por URL o emoji se conservan hasta que los reemplace.
             </p>
@@ -1132,7 +1132,7 @@ const App = {
         img.onerror = () => reject(new Error('La imagen seleccionada no es válida'));
         img.onload = () => {
           try {
-            const size = 64;
+            const size = 128;
             const canvas = document.createElement('canvas');
             canvas.width = size;
             canvas.height = size;
