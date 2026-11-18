@@ -1060,7 +1060,9 @@ const App = {
           </div>
           <div class="card-body">
             <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-              Personalice los dibujos de la bienvenida. Deje en blanco para usar los iconos SVG profesionales incluidos.
+              Seleccione la imagen de cada icono desde su equipo. Se optimiza a 64×64 px y se guarda en la base de datos;
+              <strong>no se aceptan URL externas</strong>. Deje un icono sin imagen para usar el SVG profesional incluido.
+              Los iconos cargados antes por URL o emoji se conservan hasta que los reemplace.
             </p>
             <div id="portalIconsEditor" class="form-row-3"></div>
             <button class="btn btn-primary" onclick="App.savePortalIcons()">💾 Guardar iconos del portal</button>
@@ -1072,6 +1074,12 @@ const App = {
     this.loadPortalIcons();
   },
 
+  PORTAL_ICON_LABELS: {
+    camaras: 'Cámaras', ac: 'Aire Acondicionado', alarma: 'Alarmas',
+    cerca: 'Cerca Eléctrica', video: 'Video Portero', electricidad: 'Electricidad',
+    cableado: 'Cableado', redes: 'Redes'
+  },
+
   async loadPortalIcons() {
     try {
       const value = await DB.getSetting('portal_icons', {});
@@ -1081,32 +1089,113 @@ const App = {
     }
     const editor = document.getElementById('portalIconsEditor');
     if (!editor) return;
-    const services = [
-      ['camaras', 'Cámaras'], ['ac', 'Aire Acondicionado'], ['alarma', 'Alarmas'],
-      ['cerca', 'Cerca Eléctrica'], ['video', 'Video Portero'], ['electricidad', 'Electricidad'],
-      ['cableado', 'Cableado'], ['redes', 'Redes']
-    ];
-    editor.innerHTML = services.map(([key, label]) => `
+    editor.innerHTML = Object.entries(this.PORTAL_ICON_LABELS).map(([key, label]) => `
       <div class="form-group">
         <label>${label}</label>
-        <input type="text" class="form-control" id="portalIcon_${key}"
-          placeholder="URL o emoji (dejar vacío = SVG)"
-          value="${this.escapeHtml(App.portalIcons[key] || '')}">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div id="portalIconPreview_${key}" style="width:44px;height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;">
+            ${this.renderPortalIconPreview(App.portalIcons[key])}
+          </div>
+          <div style="flex:1;min-width:0;">
+            <input type="file" class="form-control" id="portalIconFile_${key}"
+              accept="image/png,image/jpeg,image/webp"
+              onchange="App.onPortalIconSelected(event, '${key}')">
+            <small class="form-text text-muted">PNG, JPG o WEBP · máx. 8 MB · se guarda en BD</small>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="App.removePortalIcon('${key}')" title="Quitar imagen y usar SVG original">✕</button>
+        </div>
       </div>
     `).join('');
   },
 
+  renderPortalIconPreview(value) {
+    const src = String(value || '');
+    if (/^data:image\/(png|jpeg|webp);base64,/i.test(src) || /^https?:\/\//i.test(src)) {
+      return `<img src="${this.escapeHtml(src)}" alt="" style="width:32px;height:32px;object-fit:contain;">`;
+    }
+    if (src) return `<span style="font-size:26px;line-height:1;">${this.escapeHtml(src)}</span>`;
+    return '<span style="font-size:11px;color:var(--gray-500);">SVG</span>';
+  },
+
+  updatePortalIconPreview(key, value) {
+    const preview = document.getElementById('portalIconPreview_' + key);
+    if (preview) preview.innerHTML = this.renderPortalIconPreview(value);
+  },
+
+  // Convierte el archivo elegido en un PNG pequeño listo para guardar en BD.
+  resizePortalIcon(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('La imagen seleccionada no es válida'));
+        img.onload = () => {
+          try {
+            const size = 64;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            const scale = Math.min(size / img.width, size / img.height);
+            const w = img.width * scale;
+            const h = img.height * scale;
+            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+            resolve(canvas.toDataURL('image/png'));
+          } catch (err) {
+            reject(new Error('No se pudo procesar la imagen'));
+          }
+        };
+        img.src = String(reader.result || '');
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+  async onPortalIconSelected(event, key) {
+    const input = event.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      App.showNotification('Seleccione una imagen PNG, JPG o WEBP', 'warning');
+      input.value = '';
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      App.showNotification('La imagen del icono no debe superar 8 MB', 'warning');
+      input.value = '';
+      return;
+    }
+    try {
+      const dataUrl = await this.resizePortalIcon(file);
+      App.portalIcons[key] = dataUrl;
+      this.updatePortalIconPreview(key, dataUrl);
+      App.showNotification(`Icono de ${this.PORTAL_ICON_LABELS[key] || key} listo. Presione «Guardar iconos del portal».`, 'success');
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudo procesar la imagen', 'error');
+    }
+    input.value = '';
+  },
+
+  removePortalIcon(key) {
+    delete App.portalIcons[key];
+    this.updatePortalIconPreview(key, '');
+    App.showNotification(`Icono de ${this.PORTAL_ICON_LABELS[key] || key} restaurado al SVG original. No olvide guardar.`, 'info');
+  },
+
   async savePortalIcons() {
-    const keys = ['camaras', 'ac', 'alarma', 'cerca', 'video', 'electricidad', 'cableado', 'redes'];
     const icons = {};
-    keys.forEach(key => {
-      const value = document.getElementById('portalIcon_' + key)?.value.trim();
+    Object.keys(this.PORTAL_ICON_LABELS).forEach(key => {
+      const value = App.portalIcons[key];
       if (value) icons[key] = value;
     });
     try {
-      await DB.saveSetting('portal_icons', icons);
+      const result = await DB.saveSetting('portal_icons', icons);
+      if (!result || result.error) throw new Error(result?.error || 'El servidor no confirmó el guardado');
       App.portalIcons = icons;
-      App.showNotification('Iconos del portal actualizados', 'success');
+      if (typeof ClientPortal !== 'undefined') ClientPortal.portalIcons = icons;
+      App.showNotification('Iconos del portal guardados en la base de datos', 'success');
     } catch (err) {
       App.showNotification(err.message || 'No se pudieron guardar los iconos', 'error');
     }
@@ -1114,8 +1203,10 @@ const App = {
 
   async resetPortalIcons() {
     try {
-      await DB.saveSetting('portal_icons', {});
+      const result = await DB.saveSetting('portal_icons', {});
+      if (!result || result.error) throw new Error(result?.error || 'No se pudo restaurar');
       App.portalIcons = {};
+      if (typeof ClientPortal !== 'undefined') ClientPortal.portalIcons = {};
       this.loadPortalIcons();
       App.showNotification('Iconos originales restaurados', 'info');
     } catch (err) {

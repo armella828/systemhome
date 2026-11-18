@@ -27,7 +27,7 @@ Se corrigieron las causas de pérdida de datos, se aislaron los espacios de cada
 
 ---
 
-## 2. Los 17 puntos auditados
+## 2. Puntos auditados (17 originales + verificaciones adicionales)
 
 ### A. Persistencia e integridad
 
@@ -79,9 +79,11 @@ Se corrigieron las causas de pérdida de datos, se aislaron los espacios de cada
 
 19. **Fotos de inventario.** `InventoryModule` usa `FileReader`, sube la imagen vía `POST /api/inventory/:id/image` y espera confirmación antes de mostrar éxito. Verificado: producto QA con imagen `data:image/png;base64,...` de 186 caracteres persistió en BD tras logout/login; dato de prueba eliminado después.
 
+20. **Iconos del portal del cliente.** El editor ya no tiene campo de URL: cada uno de los 8 iconos se selecciona como archivo PNG/JPG/WEBP, se optimiza a 64×64 px en canvas y se guarda como `data:image/png;base64,` dentro de `app_settings` (`portal_icons`). Verificado en navegador: tras recargar y entrar como cliente, el portal muestra la imagen (<img>) en lugar del SVG por defecto. Los valores anteriores por URL o emoji se conservan para no borrar datos, pero el editor no permite cargar URLs nuevas. `tests/stage-final.test.js` comprueba persistencia de emoji y de imagen en base64.
+
 ### G. Visibilidad operativa
 
-20. **Toasts visibles.** `.sh-toast` con variantes success/error/warning/info para que los avisos de guardado, PDF y errores no pasen desapercibidos.
+21. **Toasts visibles.** `.sh-toast` con variantes success/error/warning/info para que los avisos de guardado, PDF y errores no pasen desapercibidos.
 
 ---
 
