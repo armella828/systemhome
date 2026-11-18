@@ -98,6 +98,18 @@ async function sendPasswordReset(to, name, token, expiresMinutes) {
     'Usa este enlace para restablecer tu contrasena: ' + link);
 }
 
+async function sendVerificationEmail(to, name, token, expiresMinutes) {
+  const link = APP_URL + '/verify-email?token=' + encodeURIComponent(token);
+  const html = shell('Verificar correo',
+    '<h2 style="margin:0 0 10px;font-size:20px">Hola ' + esc(name) + '</h2>' +
+    '<p style="color:#475569;line-height:1.6">Confirma tu correo para activar tu cuenta de SYSTEMHOME.</p>' +
+    button(link, 'Verificar mi correo') +
+    '<p style="color:#64748b;font-size:13px">Este enlace vence en ' + esc(expiresMinutes) + ' minutos. Si no creaste esta cuenta, ignora este correo.</p>' +
+    '<p style="color:#94a3b8;font-size:11px;word-break:break-all">Si el boton no funciona, copia este enlace: ' + esc(link) + '</p>');
+  return sendMail(to, 'SYSTEMHOME - Verifica tu correo', html,
+    'Verifica tu correo: ' + link);
+}
+
 async function sendWelcome(to, name, username) {
   const html = shell('Bienvenido a SYSTEMHOME',
     '<h2 style="margin:0 0 10px;font-size:20px">Bienvenido, ' + esc(name) + '</h2>' +
@@ -165,6 +177,7 @@ module.exports = {
   isConfigured,
   sendMail,
   sendPasswordReset,
+  sendVerificationEmail,
   sendWelcome,
   sendBudget,
   sendNewRequestNotification,

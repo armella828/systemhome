@@ -17,7 +17,10 @@ const intelligence = require('./intelligence');
 
 const app = express();
 const port = process.env.PORT || 3000;
-const jwtSecret = process.env.JWT_SECRET || 'dev-secret-systemhome-2026';
+const jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret) {
+  throw new Error('SEGURIDAD: JWT_SECRET es obligatorio. Defínalo en variables de entorno.');
+}
 
 // CORS estricto, cabeceras de seguridad y fail-fast de secretos
 security.configureSecurity(app);
@@ -47,7 +50,17 @@ app.get(['/health', '/api/health'], (req, res) => {
 function authMiddleware(req, res, next) {
   const header = req.headers.authorization || '';
   let token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (!token) token = req.query.token || '';
+  // El token en query solo se acepta en descargas/SSE, donde el navegador no
+  // puede enviar la cabecera Authorization. Nunca en endpoints normales.
+  const queryTokenPaths = [
+    /^\/api\/events$/,
+    /^\/api\/budgets\/\d+\/export$/,
+    /^\/api\/workorders\/\d+\/export$/,
+    /^\/api\/invoices\/\d+\/pdf$/,
+    /^\/api\/backup\/download\//,
+    /^\/api\/reports\/services\/export$/
+  ];
+  if (!token && queryTokenPaths.some(re => re.test(req.path))) token = req.query.token || '';
   if (!token) return res.status(401).json({ error: 'Token de autenticación requerido' });
   if (security.isRevoked(token)) return res.status(401).json({ error: 'Sesión cerrada. Inicie sesión nuevamente.' });
   req.token = token;
@@ -55,7 +68,8 @@ function authMiddleware(req, res, next) {
   try {
     const decoded = jwt.verify(token, jwtSecret);
     const user = db.prepare(`
-      SELECT u.id, u.username, u.full_name, u.email, u.phone, u.active, u.role_id, r.name as role_name
+      SELECT u.id, u.username, u.full_name, u.email, u.phone, u.active, u.role_id,
+             u.client_id, u.email_verified, u.token_version, r.name as role_name
       FROM users u
       LEFT JOIN roles r ON r.id = u.role_id
       WHERE u.id = ?
@@ -63,6 +77,9 @@ function authMiddleware(req, res, next) {
 
     if (!user || !user.active) {
       return res.status(401).json({ error: 'Usuario no encontrado o inactivo' });
+    }
+    if (decoded.ver !== undefined && Number(decoded.ver) !== Number(user.token_version || 0)) {
+      return res.status(401).json({ error: 'La sesión fue invalidada. Inicie sesión nuevamente.' });
     }
 
     req.user = {
@@ -72,7 +89,9 @@ function authMiddleware(req, res, next) {
       email: user.email,
       phone: user.phone,
       role: user.role_name || 'cliente',
-      roleId: user.role_id
+      roleId: user.role_id,
+      clientId: user.client_id || null,
+      emailVerified: !!user.email_verified
     };
     next();
   } catch (error) {
@@ -90,6 +109,29 @@ function requireRole(roles = []) {
     }
     next();
   };
+}
+
+// Control de propiedad por client_id. Los roles internos pueden trabajar con
+// cualquier cliente; un cliente SOLO con su propia ficha vinculada al usuario.
+function ensureClientAccess(req, res, clientId) {
+  if (!req.user) {
+    res.status(401).json({ error: 'No autenticado' });
+    return false;
+  }
+  const role = (req.user.role || '').toLowerCase();
+  if (['admin', 'vendedor', 'tecnico'].includes(role)) return true;
+  if (clientId == null || req.user.clientId == null || Number(clientId) !== Number(req.user.clientId)) {
+    // 404 para no revelar si el recurso ajeno existe.
+    res.status(404).json({ error: 'No encontrado' });
+    return false;
+  }
+  return true;
+}
+
+function clientIdForRequest(req, bodyClientId) {
+  const role = (req.user?.role || '').toLowerCase();
+  if (role === 'cliente') return req.user.clientId;
+  return bodyClientId || req.user?.clientId || null;
 }
 
 // Server-Sent Events: sincronizacion inmediata con los paneles abiertos
@@ -178,6 +220,9 @@ function notifyByEmail(roleNames, subject, buildForRole) {
 }
 
 function publishChange(entity, action, data = {}, filter = {}) {
+  if (data.clientId != null && !filter.clientIds) {
+    filter = { ...filter, clientIds: [data.clientId] };
+  }
   realtime.publishDataChange(entity, action, data, filter);
 }
 
@@ -222,31 +267,30 @@ function resolveService(serviceTypeOrName) {
   return { id: null, name: lookupName };
 }
 
-// Auto-vinculación de cliente para usuario logueado
+// Vinculación usuario ↔ cliente. NUNCA se infiere por email o teléfono: eso
+// permitía que un registro con el correo de otro usuario heredara su espacio.
 function getOrCreateClientIdForUser(user) {
   if (!user) return null;
-  // 1. Buscar por email
-  if (user.email) {
-    const existing = db.prepare('SELECT id FROM clients WHERE LOWER(email) = LOWER(?)').get(user.email);
-    if (existing) return existing.id;
-  }
-  // 2. Buscar por teléfono
-  if (user.phone) {
-    const existing = db.prepare('SELECT id FROM clients WHERE phone = ?').get(user.phone);
-    if (existing) return existing.id;
-  }
-  // 3. Buscar por creador
-  const byCreator = db.prepare('SELECT id FROM clients WHERE created_by_user_id = ? ORDER BY id DESC LIMIT 1').get(user.id);
-  if (byCreator) return byCreator.id;
+  if (user.clientId) return user.clientId;
 
-  // 4. Crear registro de cliente automáticamente para usuarios cliente
+  const byCreator = db.prepare('SELECT id FROM clients WHERE created_by_user_id = ? ORDER BY id DESC LIMIT 1').get(user.id);
+  if (byCreator) {
+    db.prepare('UPDATE users SET client_id = ? WHERE id = ?').run(byCreator.id, user.id);
+    user.clientId = byCreator.id;
+    return byCreator.id;
+  }
+
+  if ((user.role || '').toLowerCase() !== 'cliente') return null;
+
   const now = new Date().toISOString();
-  const ruc = `CI-${user.username}-${user.id}`;
   const insert = db.prepare(`
     INSERT INTO clients (name, ruc, address, phone, email, client_type, active, created_at, updated_at, created_by_user_id)
-    VALUES (?, ?, ?, ?, ?, 'persona', 1, ?, ?, ?)
-  `).run(user.name || user.username, ruc, '', user.phone || '', user.email || '', now, now, user.id);
-  return insert.lastInsertRowid;
+    VALUES (?, '', '', ?, ?, 'persona', 1, ?, ?, ?)
+  `).run(user.name || user.username, user.phone || '', user.email || '', now, now, user.id);
+  const clientId = insert.lastInsertRowid;
+  db.prepare('UPDATE users SET client_id = ? WHERE id = ?').run(clientId, user.id);
+  user.clientId = clientId;
+  return clientId;
 }
 
 // ============================================================
@@ -263,6 +307,8 @@ function formatUser(user) {
     role: user.role_name || user.role || 'cliente',
     roleId: user.role_id,
     active: !!user.active,
+    emailVerified: !!user.email_verified,
+    clientId: user.client_id || null,
     createdAt: user.created_at,
     updatedAt: user.updated_at
   };
@@ -541,14 +587,210 @@ function renderBudgetPdf(doc, budget, client) {
   doc.end();
 }
 
+// PDF profesional con flujo de cursor: sin coordenadas Y manuales, sin
+// superposiciones, cabecera/pie en todas las páginas y tabla multipágina.
+function renderBudgetPdfProfessional(doc, budget, client) {
+  const pageW = doc.page.width;
+  const left = 40;
+  const right = pageW - 40;
+  const contentW = right - left;
+  const bottomLimit = doc.page.height - 92;
+
+  const logoBuffer = getCompanyLogoBuffer();
+
+  function drawHeader() {
+    doc.rect(0, 0, pageW, 112).fill('#f8fafc');
+    if (logoBuffer) {
+      try { doc.image(logoBuffer, (pageW - 76) / 2, 10, { fit: [76, 52], align: 'center' }); }
+      catch (e) { console.error('PDF logo error:', e.message); }
+    }
+    doc.font('Helvetica-Bold').fontSize(14).fillColor('#0b1f3a')
+      .text('SYSTEMHOME SECURITY', left, 62, { width: contentW, align: 'center' });
+    doc.font('Helvetica').fontSize(8).fillColor('#475569')
+      .text('Seguridad Electrónica · Climatización · Redes y Telecomunicaciones', left, 82, { width: contentW, align: 'center' });
+    doc.moveTo(left, 108).lineTo(right, 108).strokeColor('#0e7490').lineWidth(2).stroke();
+    doc.fillColor('#0b1f3a').font('Helvetica');
+    doc.y = 124;
+  }
+
+  function drawFooter(pageNumber) {
+    doc.font('Helvetica').fontSize(7.5).fillColor('#64748b')
+      .text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Asunción, Paraguay',
+        left, doc.page.height - 72, { width: contentW, align: 'center' });
+    doc.text(`Página ${pageNumber} · COTIZACIÓN ${budget.number}`,
+        left, doc.page.height - 58, { width: contentW, align: 'center' });
+  }
+
+  doc.on('pageAdded', () => {
+    const previous = doc.page.count - 2;
+    if (previous >= 0) {
+      doc.switchToPage(previous);
+      drawFooter(previous + 1);
+      doc.switchToPage(previous + 1);
+    }
+    drawHeader();
+  });
+
+  drawHeader();
+
+  const ensureSpace = (needed) => {
+    if (doc.y + needed > bottomLimit) doc.addPage();
+  };
+
+  // Título y metadatos
+  ensureSpace(70);
+  doc.font('Helvetica-Bold').fontSize(15).fillColor('#0b1f3a')
+    .text(`COTIZACIÓN / PRESUPUESTO ${budget.number}`, left, doc.y, { width: contentW });
+  doc.font('Helvetica').fontSize(9).fillColor('#475569');
+  doc.text(`Fecha de emisión: ${new Date(budget.created_at).toLocaleDateString('es-PY')}   |   Estado: ${String(budget.status || '').toUpperCase()}`);
+  if (budget.valid_until) doc.text(`Válido hasta: ${budget.valid_until}`);
+  if (budget.estimated_time) doc.text(`Tiempo estimado: ${budget.estimated_time}`);
+  doc.moveDown(0.8);
+
+  // Datos del cliente: altura calculada con heightOfString
+  const displayName = client?.name || budget.prospect_name || 'Cliente';
+  const displayRuc = client?.ruc || budget.prospect_ruc || 'S/N';
+  const displayPhone = client?.phone || budget.prospect_phone || '-';
+  const displayEmail = client?.email || budget.prospect_email || '-';
+  const directions = [
+    `Nombre: ${displayName}`,
+    `RUC / CI: ${displayRuc}    Teléfono: ${displayPhone}`,
+    `Correo: ${displayEmail}`,
+    `Dirección: ${budget.address || client?.address || 'A coordinar'}`
+  ];
+  doc.fontSize(9);
+  const linesHeight = directions.reduce((sum, line) => sum + doc.heightOfString(line, { width: contentW - 20 }), 0);
+  const boxH = linesHeight + 26;
+  ensureSpace(boxH + 10);
+  const boxTop = doc.y;
+  doc.roundedRect(left, boxTop, contentW, boxH, 4).fillAndStroke('#f8fafc', '#e2e8f0');
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#0b1f3a')
+    .text('DATOS DEL CLIENTE', left + 10, boxTop + 8, { width: contentW - 20 });
+  doc.font('Helvetica').fontSize(9).fillColor('#334155');
+  let ty = boxTop + 24;
+  directions.forEach(line => {
+    doc.text(line, left + 10, ty, { width: contentW - 20 });
+    ty += doc.heightOfString(line, { width: contentW - 20 }) + 2;
+  });
+  doc.y = boxTop + boxH + 12;
+
+  ensureSpace(50);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#0e7490')
+    .text(`SERVICIO: ${budget.service_type || 'Servicio Técnico'}`, left, doc.y, { width: contentW });
+  if (budget.description) {
+    doc.font('Helvetica').fontSize(9).fillColor('#475569').text(budget.description, { width: contentW });
+  }
+  doc.moveDown(0.6);
+
+  // Items
+  let items = [];
+  try { items = typeof budget.items === 'string' ? JSON.parse(budget.items || '[]') : (budget.items || []); } catch (e) { items = []; }
+  items = normalizeBudgetItems(items);
+
+  const cols = [
+    { key: 'concept', label: 'Concepto / Producto', x: left + 5, w: 245, align: 'left' },
+    { key: 'qty', label: 'Cant.', x: left + 255, w: 38, align: 'right' },
+    { key: 'price', label: 'P. Unit. (Bs.)', x: left + 298, w: 72, align: 'right' },
+    { key: 'discountPercent', label: 'Dto. %', x: left + 375, w: 42, align: 'right' },
+    { key: 'subtotal', label: 'Subtotal (Bs.)', x: left + 422, w: contentW - 427, align: 'right' }
+  ];
+
+  function drawTableHeader() {
+    ensureSpace(24);
+    const y = doc.y;
+    doc.rect(left, y, contentW, 20).fill('#0b1f3a');
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
+    cols.forEach(c => doc.text(c.label, c.x, y + 6, { width: c.w, align: c.align }));
+    doc.y = y + 26;
+  }
+
+  ensureSpace(60);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827')
+    .text('DETALLE DE PRODUCTOS Y SERVICIOS', left, doc.y, { width: contentW });
+  doc.moveDown(0.3);
+  drawTableHeader();
+
+  items.forEach((item, index) => {
+    doc.font('Helvetica').fontSize(8.5);
+    const conceptH = doc.heightOfString(String(item.concept || ''), { width: cols[0].w });
+    const notesH = item.notes ? doc.heightOfString(String(item.notes), { width: contentW - 20 }) + 4 : 0;
+    const rowH = Math.max(conceptH, 12) + notesH + 12;
+    ensureSpace(rowH + 4);
+    const y = doc.y;
+    doc.rect(left, y, contentW, rowH).fill(index % 2 === 0 ? '#f8fafc' : '#ffffff');
+    doc.font('Helvetica').fontSize(8.5).fillColor('#1e293b');
+    doc.text(String(item.concept || ''), cols[0].x, y + 5, { width: cols[0].w });
+    doc.text(String(item.qty), cols[1].x, y + 5, { width: cols[1].w, align: 'right' });
+    doc.text(money(item.price), cols[2].x, y + 5, { width: cols[2].w, align: 'right' });
+    doc.text(`${item.discountPercent || 0}%`, cols[3].x, y + 5, { width: cols[3].w, align: 'right' });
+    doc.text(money(item.subtotal), cols[4].x, y + 5, { width: cols[4].w, align: 'right' });
+    if (notesH) {
+      doc.fontSize(7.5).fillColor('#64748b')
+        .text(String(item.notes), left + 5, y + conceptH + 10, { width: contentW - 20 });
+    }
+    doc.y = y + rowH + 2;
+  });
+
+  // Totales
+  const labor = Number(budget.labor || 0);
+  const discount = Number(budget.discount || 0);
+  const tax = Number(budget.tax || 0);
+  const total = Number(budget.total || 0);
+  ensureSpace(76);
+  doc.moveTo(left + 280, doc.y).lineTo(right, doc.y).strokeColor('#cbd5e1').stroke();
+  doc.moveDown(0.3);
+  doc.font('Helvetica').fontSize(9).fillColor('#334155');
+  const totalX = left + 300;
+  const totalW = contentW - 305;
+  if (labor) doc.text(`Mano de obra / instalación: Bs. ${money(labor)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  if (tax) doc.text(`Impuestos / gastos: Bs. ${money(tax)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  if (discount) doc.text(`Descuento: -Bs. ${money(discount)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  doc.moveDown(0.4);
+  doc.font('Helvetica-Bold').fontSize(13).fillColor('#0e7490')
+    .text(`TOTAL: Bs. ${money(total)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  doc.moveDown(0.8);
+
+  // Condiciones, observaciones y aprobación
+  const extras = [];
+  if (budget.conditions) extras.push(['Condiciones', budget.conditions]);
+  if (budget.observations) extras.push(['Observaciones', budget.observations]);
+  if (budget.reference) extras.push(['Referencia', budget.reference]);
+  if (budget.latitude && budget.longitude) extras.push(['GPS', `${budget.latitude}, ${budget.longitude}`]);
+  extras.forEach(([label, value]) => {
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#0b1f3a').text(`${label}:`, { continued: true });
+    doc.font('Helvetica').fillColor('#475569').text(` ${value}`, { width: contentW });
+  });
+
+  doc.moveDown(1.2);
+  doc.font('Helvetica').fontSize(8).fillColor('#64748b')
+    .text('Los precios están expresados en Bolívianos (Bs.). Esta cotización no constituye factura.', { width: contentW });
+  doc.moveDown(0.8);
+  ensureSpace(70);
+  doc.moveTo(left, doc.y).lineTo(left + 220, doc.y).strokeColor('#94a3b8').stroke();
+  doc.moveTo(left + 295, doc.y).lineTo(right, doc.y).strokeColor('#94a3b8').stroke();
+  doc.fontSize(8).fillColor('#475569');
+  doc.text('Firma del cliente / Aprobación', left, doc.y + 6, { width: 220, align: 'center' });
+  doc.text('SystemHome · Responsable de ventas', left + 295, doc.y - 14, { width: right - (left + 295), align: 'center' });
+
+  drawFooter(doc.page.count);
+  doc.font('Helvetica').fillColor('#0b1f3a');
+}
+
 function generateBudgetPdfBuffer(budget, client) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
-    const chunks = [];
-    doc.on('data', chunk => chunks.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-    renderBudgetPdf(doc, budget, client);
+    try {
+      // compress: false permite auditorir el texto del PDF y facilita la
+      // extracción en herramientas ligeras; el tamaño sigue siendo aceptable.
+      const doc = new PDFDocument({ margin: 40, size: 'A4', autoFirstPage: true, compress: false });
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      renderBudgetPdfProfessional(doc, budget, client);
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -837,13 +1079,27 @@ app.post('/api/auth/login', security.loginLimiter, (req, res) => {
 
   if (!user.active) return res.status(403).json({ error: 'Cuenta de usuario inactiva. Contacte al administrador.' });
 
+  const roleName = user.role_name || 'cliente';
+  if (roleName === 'cliente' && !user.email_verified) {
+    return res.status(403).json({
+      error: 'Su correo todavía no fue verificado. Revise su bandeja de entrada.',
+      needsVerification: true,
+      email: user.email || ''
+    });
+  }
+
   // Migrar hash SHA256 a bcrypt automáticamente
   if (!user.password_hash.startsWith('$2')) {
     const newHash = bcrypt.hashSync(password, 10);
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, user.id);
   }
 
-  const token = jwt.sign({ id: user.id, username: user.username, role: user.role_name || 'cliente' }, jwtSecret, { expiresIn: '12h' });
+  const token = jwt.sign({
+    id: user.id,
+    username: user.username,
+    role: roleName,
+    ver: user.token_version || 0
+  }, jwtSecret, { expiresIn: '12h' });
   audit(req, 'login', 'auth', 'user', user.id, null, { username: user.username });
   res.json({ token, user: formatUser(user) });
 });
@@ -868,43 +1124,121 @@ app.post('/api/auth/change-password', authMiddleware, (req, res) => {
   if (!user || !verifyPassword(currentPassword, user.password_hash)) {
     return res.status(401).json({ error: 'Contraseña actual incorrecta' });
   }
-  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+  db.prepare('UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1, updated_at = ? WHERE id = ?')
     .run(bcrypt.hashSync(newPassword, 12), new Date().toISOString(), req.user.id);
   security.revokeToken(req.token);
   audit(req, 'password_changed', 'auth', 'user', req.user.id, null, {});
   res.json({ ok: true, message: 'Contraseña actualizada. Inicie sesión nuevamente.' });
 });
 
-app.post('/api/auth/register', (req, res) => {
-  const { username, password, name, email, phone } = req.body;
-  if (!username || !password || !name) return res.status(400).json({ error: 'Complete todos los campos requeridos' });
+const VERIFY_TTL_MINUTES = Number(process.env.VERIFY_TOKEN_TTL_MINUTES || 1440);
 
-  const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username.trim());
-  if (existing) return res.status(409).json({ error: 'El nombre de usuario ya está registrado' });
+function hashVerificationToken(token) {
+  return require('crypto').createHash('sha256').update(token).digest('hex');
+}
+
+async function issueVerificationToken(user) {
+  const token = require('crypto').randomBytes(32).toString('hex');
+  const now = new Date();
+  const expires = new Date(now.getTime() + VERIFY_TTL_MINUTES * 60 * 1000);
+  db.prepare('UPDATE email_verification_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL')
+    .run(now.toISOString(), user.id);
+  db.prepare('INSERT INTO email_verification_tokens (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)')
+    .run(user.id, hashVerificationToken(token), expires.toISOString(), now.toISOString());
+  return token;
+}
+
+app.post('/api/auth/register', security.recoveryLimiter, async (req, res) => {
+  const { username, password, name, email, phone, documentId, clientType, address, city } = req.body;
+  const cleanUsername = String(username || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanName = String(name || '').trim();
+
+  if (!/^[A-Za-z0-9._-]{4,20}$/.test(cleanUsername)) {
+    return res.status(400).json({ error: 'El usuario debe tener entre 4 y 20 caracteres (letras, números, punto, guion o guion bajo)' });
+  }
+  if (!cleanName || String(password || '').length < 8) {
+    return res.status(400).json({ error: 'Ingrese su nombre y una contraseña de al menos 8 caracteres' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ error: 'Ingrese un correo electrónico válido' });
+  }
+
+  const existingUser = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)').get(cleanUsername, cleanEmail);
+  if (existingUser) return res.status(409).json({ error: 'Ese usuario o correo ya está registrado' });
 
   const clientRole = db.prepare("SELECT id FROM roles WHERE name = 'cliente'").get();
   const roleId = clientRole ? clientRole.id : 4;
   const now = new Date().toISOString();
-  const hash = bcrypt.hashSync(password, 10);
+  const hash = bcrypt.hashSync(password, 12);
 
   const result = db.prepare(`
-    INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-  `).run(username.trim(), hash, name.trim(), email ? email.trim() : '', phone ? phone.trim() : '', roleId, now, now);
+    INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, email_verified, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+  `).run(cleanUsername, hash, cleanName, cleanEmail, String(phone || '').trim(), roleId, now, now);
 
   const newUserId = result.lastInsertRowid;
-  // Crear ficha de cliente automáticamente vinculada
-  const rucAuto = `CI-${username.trim()}-${newUserId}`;
   db.prepare(`
-    INSERT INTO clients (name, ruc, address, phone, email, client_type, active, created_at, updated_at, created_by_user_id)
-    VALUES (?, ?, '', ?, ?, 'persona', 1, ?, ?, ?)
-  `).run(name.trim(), rucAuto, phone ? phone.trim() : '', email ? email.trim() : '', now, now, newUserId);
+    INSERT INTO clients (name, ruc, address, city, phone, email, client_type, active, created_at, updated_at, created_by_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+  `).run(cleanName, String(documentId || '').trim() || null, String(address || '').trim(), String(city || '').trim(),
+    String(phone || '').trim(), cleanEmail, clientType === 'empresa' ? 'empresa' : 'persona', now, now, newUserId);
+
+  const client = db.prepare('SELECT id FROM clients WHERE created_by_user_id = ? ORDER BY id DESC LIMIT 1').get(newUserId);
+  if (client) db.prepare('UPDATE users SET client_id = ? WHERE id = ?').run(client.id, newUserId);
 
   const user = db.prepare(`SELECT u.*, r.name as role_name FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.id = ?`).get(newUserId);
-  const token = jwt.sign({ id: user.id, username: user.username, role: user.role_name }, jwtSecret, { expiresIn: '12h' });
+  const token = await issueVerificationToken(user);
+  let mailResult = { sent: false, reason: 'SMTP_NOT_CONFIGURED' };
+  try {
+    mailResult = await mailer.sendVerificationEmail(cleanEmail, cleanName, token, VERIFY_TTL_MINUTES);
+  } catch (err) {
+    mailResult = { sent: false, reason: err.message };
+  }
+  recovery.logMail(db, cleanEmail, 'Verifica tu correo', 'email_verification',
+    mailResult.sent ? 'sent' : 'failed', mailResult.reason);
+
   audit(req, 'registro_cliente', 'auth', 'user', user.id, null, { username: user.username });
-  notifyAdmins('nuevo_cliente_registrado', 'Nuevo cliente registrado', `El cliente ${user.full_name} (${user.username}) ha creado su cuenta.`, { userId: user.id });
-  res.status(201).json({ token, user: formatUser(user) });
+  notifyAdmins('nuevo_cliente_registrado', 'Nuevo cliente registrado', `El cliente ${cleanName} (${cleanUsername}) ha creado su cuenta.`, { userId: user.id });
+
+  const expose = process.env.NODE_ENV !== 'production' && !mailer.isConfigured();
+  res.status(201).json({
+    ok: true,
+    message: mailResult.sent
+      ? 'Cuenta creada. Revise su correo para verificarla antes de ingresar.'
+      : 'Cuenta creada, pero no se pudo enviar el correo de verificación. Contacte al administrador.',
+    emailSent: !!mailResult.sent,
+    needsVerification: true,
+    devToken: expose ? token : undefined,
+    user: formatUser(user)
+  });
+});
+
+app.get('/api/auth/verify-email', async (req, res) => {
+  const token = String(req.query.token || '');
+  const row = db.prepare('SELECT * FROM email_verification_tokens WHERE token_hash = ? AND used_at IS NULL')
+    .get(hashVerificationToken(token));
+  if (!row || new Date(row.expires_at).getTime() < Date.now()) {
+    return res.status(400).json({ error: 'Enlace de verificación inválido o expirado' });
+  }
+  const now = new Date().toISOString();
+  db.prepare('UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?').run(now, row.user_id);
+  db.prepare('UPDATE email_verification_tokens SET used_at = ? WHERE id = ?').run(now, row.id);
+  res.json({ ok: true, message: 'Correo verificado. Ya puede iniciar sesión.' });
+});
+
+app.post('/api/auth/resend-verification', security.recoveryLimiter, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const user = db.prepare("SELECT u.*, r.name as role_name FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE LOWER(u.email) = LOWER(?) AND u.active = 1").get(email);
+  if (!user || user.email_verified) {
+    return res.json({ ok: true, message: 'Si la cuenta existe y está pendiente, enviamos un nuevo enlace.' });
+  }
+  const token = await issueVerificationToken(user);
+  let sent = false;
+  try { sent = !!(await mailer.sendVerificationEmail(user.email, user.full_name, token, VERIFY_TTL_MINUTES)).sent; } catch (e) {}
+  recovery.logMail(db, user.email, 'Reenviar verificación', 'email_verification', sent ? 'sent' : 'failed');
+  const expose = process.env.NODE_ENV !== 'production' && !mailer.isConfigured();
+  res.json({ ok: true, message: sent ? 'Nuevo enlace enviado.' : 'No se pudo enviar el correo.', devToken: expose ? token : undefined });
 });
 
 // Recuperacion de contrasena por correo real
@@ -941,7 +1275,11 @@ app.get('/api/mail/status', authMiddleware, requireRole(['admin']), (req, res) =
 });
 
 // Configuracion general persistida en PostgreSQL/SQLite (sin secretos)
+const PUBLIC_SETTING_KEYS = new Set(['portal_icons', 'company_logo', 'company_name', 'company_phone', 'company_email', 'whatsapp_number', 'company_address', 'payment_qr']);
 app.get('/api/settings/:key', authMiddleware, (req, res) => {
+  if ((req.user.role || '').toLowerCase() === 'cliente' && !PUBLIC_SETTING_KEYS.has(req.params.key)) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
   const row = db.prepare('SELECT value, updated_at FROM app_settings WHERE key = ?').get(req.params.key);
   let value = null;
   try { value = row?.value ? JSON.parse(row.value) : null; } catch (e) { value = row?.value || null; }
@@ -965,6 +1303,45 @@ app.get('/api/me', authMiddleware, (req, res) => {
   const user = db.prepare(`SELECT u.*, r.name as role_name FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.id = ?`).get(req.user.id);
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ user: formatUser(user) });
+});
+
+// Perfil del propio usuario: permite cambiar nombre/teléfono y, si cambia el
+// correo, vuelve a exigir verificación. Nunca permite cambiar rol ni cliente.
+app.put('/api/me/profile', authMiddleware, async (req, res) => {
+  const current = db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id);
+  if (!current) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const { name, email, phone } = req.body || {};
+  const newName = name !== undefined ? String(name).trim() : current.full_name;
+  const newPhone = phone !== undefined ? String(phone).trim() : current.phone;
+  const newEmail = email !== undefined ? String(email).trim().toLowerCase() : current.email;
+  if (!newName) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+    return res.status(400).json({ error: 'Correo electrónico inválido' });
+  }
+  if (newEmail && newEmail !== current.email) {
+    const dup = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ?').get(newEmail, req.user.id);
+    if (dup) return res.status(409).json({ error: 'Ese correo ya está registrado' });
+  }
+
+  const emailChanged = Boolean(newEmail && newEmail !== current.email);
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE users SET full_name = ?, email = ?, phone = ?, email_verified = ?,
+    token_version = CASE WHEN ? THEN COALESCE(token_version, 0) + 1 ELSE COALESCE(token_version, 0) END,
+    updated_at = ? WHERE id = ?`)
+    .run(newName, newEmail, newPhone, emailChanged ? 0 : current.email_verified, emailChanged ? 1 : 0, now, req.user.id);
+
+  let devToken;
+  if (emailChanged) {
+    const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    devToken = await issueVerificationToken(updatedUser);
+    let sent = false;
+    try { sent = !!(await mailer.sendVerificationEmail(newEmail, newName, devToken, VERIFY_TTL_MINUTES)).sent; } catch (e) {}
+    recovery.logMail(db, newEmail, 'Verificación por cambio de correo', 'email_verification', sent ? 'sent' : 'failed');
+    devToken = process.env.NODE_ENV !== 'production' && !mailer.isConfigured() ? devToken : undefined;
+  }
+
+  const user = db.prepare(`SELECT u.*, r.name as role_name FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.id = ?`).get(req.user.id);
+  res.json({ user: formatUser(user), needsVerification: emailChanged, devToken });
 });
 
 app.get('/api/roles', authMiddleware, (req, res) => {
@@ -1018,7 +1395,7 @@ app.put('/api/users/:id', authMiddleware, requireRole(['admin']), (req, res) => 
 
   const now = new Date().toISOString();
   db.prepare(`
-    UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?, role_id = ?, active = ?, password_hash = ?, updated_at = ? WHERE id = ?
+    UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?, role_id = ?, active = ?, password_hash = ?, token_version = CASE WHEN ? THEN COALESCE(token_version, 0) + 1 ELSE COALESCE(token_version, 0) END, updated_at = ? WHERE id = ?
   `).run(
     username ? username.trim() : current.username,
     name ? name.trim() : current.full_name,
@@ -1027,6 +1404,7 @@ app.put('/api/users/:id', authMiddleware, requireRole(['admin']), (req, res) => 
     roleRow ? roleRow.id : current.role_id,
     active !== undefined ? (active ? 1 : 0) : current.active,
     hash,
+    password && password.trim().length >= 6 ? 1 : 0,
     now,
     userId
   );
@@ -1041,6 +1419,16 @@ app.delete('/api/users/:id', authMiddleware, requireRole(['admin']), (req, res) 
   if (req.user.id === userId) return res.status(400).json({ error: 'No puede eliminarse a sí mismo' });
   const current = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!current) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  // Desvincular referencias antes de borrar. No se elimina ningún cliente ni
+  // historial: solo se rompe la FK circular para no perder datos de negocio.
+  const ownClients = db.prepare('SELECT id FROM clients WHERE created_by_user_id = ?').all(userId).map(c => c.id);
+  if (ownClients.length) {
+    const placeholders = ownClients.map(() => '?').join(',');
+    db.prepare(`UPDATE users SET client_id = NULL WHERE client_id IN (${placeholders})`).run(...ownClients);
+  }
+  db.prepare('UPDATE clients SET created_by_user_id = NULL WHERE created_by_user_id = ?').run(userId);
+  db.prepare('UPDATE users SET client_id = NULL WHERE client_id = ?').run(current.client_id || -1);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   audit(req, 'usuario_eliminado', 'users', 'user', userId, { username: current.username }, null);
   res.json({ ok: true });
@@ -1256,7 +1644,9 @@ app.post('/api/requests', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Tipo de servicio y descripción son requeridos' });
   }
 
-  const clientId = passedClientId || resolveRequestClientId(req, { clientName, clientPhone, clientEmail, clientAddress, address });
+  const clientId = (req.user.role === 'cliente')
+    ? clientIdForRequest(req)
+    : (passedClientId || resolveRequestClientId(req, { clientName, clientPhone, clientEmail, clientAddress, address }));
   const service = resolveService(serviceType);
   const number = ensureRequestNumber();
   const now = new Date().toISOString();
@@ -1309,8 +1699,8 @@ app.post('/api/requests', authMiddleware, (req, res) => {
   audit(req, 'solicitud_creada', 'requests', 'request', requestRow.id, null, { number, service: service.name, lat: latNum, lng: lngNum });
   notifyAdmins('nueva_solicitud', '📝 Nueva Solicitud de Cotización', `${displayClient} solicitó cotización (${service.name}) [${number}].`, { requestId: requestRow.id, budgetId: budgetRow?.id || null });
   notifyRole('tecnico', 'nueva_solicitud', '📝 Nueva Solicitud - SYSTEMHOME', `${displayClient} solicitó ${service.name} [${number}].`, { requestId: requestRow.id, budgetId: budgetRow?.id || null });
-  publishChange('requests', 'created', { id: requestRow.id, number });
-  if (budgetRow) publishChange('budgets', 'created', { id: budgetRow.id, number: budgetRow.number, source: 'client' });
+  publishChange('requests', 'created', { id: requestRow.id, number, clientId });
+  if (budgetRow) publishChange('budgets', 'created', { id: budgetRow.id, number: budgetRow.number, source: 'client', clientId });
 
   notifyByEmail(['admin', 'tecnico'], `SYSTEMHOME - Nueva solicitud ${number}`, (email, roleName) =>
     Promise.resolve(mailer.sendNewRequestNotification(email, roleName === 'admin' ? 'Administrador' : 'Técnico', formattedRequest)));
@@ -1370,6 +1760,7 @@ app.post('/api/requests/:id/files', authMiddleware, async (req, res) => {
     const requestId = Number(req.params.id);
     const requestRow = db.prepare('SELECT * FROM requests WHERE id = ?').get(requestId);
     if (!requestRow) return res.status(404).json({ error: 'Solicitud no encontrada' });
+    if (!ensureClientAccess(req, res, requestRow.client_id)) return;
 
     const { filename, mimeType, data } = req.body;
     const check = security.validateUpload({ filename, mimeType, data });
@@ -1501,7 +1892,7 @@ app.post('/api/budgets', authMiddleware, requireRole(['admin', 'vendedor']), (re
   }
 
   audit(req, 'cotizacion_creada', 'budgets', 'budget', budget.id, null, { number, total });
-  publishChange('budgets', 'created', { id: budget.id, number, status });
+  publishChange('budgets', 'created', { id: budget.id, number, status, clientId: budget.client_id });
   res.status(201).json({ budget: formatBudget(budget) });
 });
 
@@ -1562,7 +1953,7 @@ app.put('/api/budgets/:id', authMiddleware, requireRole(['admin', 'vendedor']), 
   syncBudgetItems(budgetId, normalizedItems);
   const updated = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   audit(req, 'cotizacion_modificada', 'budgets', 'budget', budgetId, { status: current.status }, { status: updated.status });
-  publishChange('budgets', 'updated', { id: budgetId, number: updated.number, status: updated.status });
+  publishChange('budgets', 'updated', { id: budgetId, number: updated.number, status: updated.status, clientId: updated.client_id });
   res.json({ budget: formatBudget(updated) });
 });
 
@@ -1589,8 +1980,8 @@ app.post('/api/budgets/:id/send', authMiddleware, requireRole(['admin', 'vendedo
 
   const updated = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   audit(req, 'cotizacion_enviada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'enviado' });
-  publishChange('budgets', 'sent', { id: budgetId, number: budget.number, status: 'enviado' });
-  if (budget.request_id) publishChange('requests', 'updated', { id: Number(budget.request_id), status: 'cotizacion_enviada' });
+  publishChange('budgets', 'sent', { id: budgetId, number: budget.number, status: 'enviado', clientId: budget.client_id });
+  if (budget.request_id) publishChange('requests', 'updated', { id: Number(budget.request_id), status: 'cotizacion_enviada', clientId: budget.client_id });
   res.json({ budget: formatBudget(updated) });
 });
 
@@ -1643,6 +2034,7 @@ app.post('/api/budgets/:id/approve', authMiddleware, (req, res) => {
   const budgetId = Number(req.params.id);
   const budget = db.prepare('SELECT * FROM budgets WHERE id = ?').get(budgetId);
   if (!budget) return res.status(404).json({ error: 'Cotización no encontrada' });
+  if (!ensureClientAccess(req, res, budget.client_id)) return;
   if (budget.status === 'rechazado') return res.status(400).json({ error: 'Una cotización rechazada no puede aprobarse directamente' });
 
   const now = new Date().toISOString();
@@ -1683,8 +2075,8 @@ app.post('/api/budgets/:id/approve', authMiddleware, (req, res) => {
   audit(req, 'cotizacion_aprobada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'aprobado', orderNumber });
   notifyAdmins('cotizacion_aprobada', '✅ Cotización Aprobada', `El cliente aprobó la cotización ${budget.number}. Se ha generado la Orden ${orderNumber}.`, { budgetId, orderId });
   notifyRole('tecnico', 'orden_asignada', '🔧 Nueva Orden de Trabajo', `Orden ${orderNumber} generada desde la cotización ${budget.number}.`, { orderId, budgetId });
-  publishChange('budgets', 'approved', { id: budgetId, number: budget.number, status: 'aprobado' });
-  publishChange('workorders', 'created', { id: orderId, number: orderNumber });
+  publishChange('budgets', 'approved', { id: budgetId, number: budget.number, status: 'aprobado', clientId: budget.client_id });
+  publishChange('workorders', 'created', { id: orderId, number: orderNumber, clientId: budget.client_id });
 
   const updatedBudget = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   res.json({ budget: formatBudget(updatedBudget), workOrderId: orderId, workOrderNumber: orderNumber });
@@ -1695,6 +2087,7 @@ app.post('/api/budgets/:id/reject', authMiddleware, (req, res) => {
   const { reason = '' } = req.body;
   const budget = db.prepare('SELECT * FROM budgets WHERE id = ?').get(budgetId);
   if (!budget) return res.status(404).json({ error: 'Cotización no encontrada' });
+  if (!ensureClientAccess(req, res, budget.client_id)) return;
 
   const now = new Date().toISOString();
   db.prepare("UPDATE budgets SET status = 'rechazado', rejection_reason = ?, rejected_at = ?, rejected_by_user_id = ?, updated_at = ? WHERE id = ?")
@@ -1711,27 +2104,29 @@ app.post('/api/budgets/:id/reject', authMiddleware, (req, res) => {
 
   audit(req, 'cotizacion_rechazada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'rechazado', reason });
   notifyAdmins('cotizacion_rechazada', '❌ Cotización Rechazada', `La cotización ${budget.number} fue rechazada por el cliente.${reason ? ' Motivo: ' + reason : ''}`, { budgetId });
-  publishChange('budgets', 'rejected', { id: budgetId, number: budget.number, status: 'rechazado' });
+  publishChange('budgets', 'rejected', { id: budgetId, number: budget.number, status: 'rechazado', clientId: budget.client_id });
 
   const updatedBudget = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   res.json({ budget: formatBudget(updatedBudget) });
 });
 
-app.get('/api/budgets/:id/export', authMiddleware, (req, res) => {
+app.get('/api/budgets/:id/export', authMiddleware, async (req, res) => {
   const budgetId = Number(req.params.id);
   const budget = db.prepare(`SELECT b.*, s.name as service_name FROM budgets b LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   if (!budget) return res.status(404).json({ error: 'Cotización no encontrada' });
-  if (req.user.role === 'cliente') {
-    const clientId = getOrCreateClientIdForUser(req.user);
-    if (budget.client_id !== clientId) return res.status(403).json({ error: 'Acceso denegado a esta cotización' });
-  }
+  if (!ensureClientAccess(req, res, budget.client_id)) return;
   const client = budget.client_id ? db.prepare('SELECT * FROM clients WHERE id = ?').get(budget.client_id) : null;
 
-  const doc = new PDFDocument({ margin: 40, size: 'A4' });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename=cotizacion-${budget.number}.pdf`);
-  doc.pipe(res);
-  renderBudgetPdf(doc, budget, client);
+  try {
+    const pdfBuffer = await generateBudgetPdfBuffer(budget, client);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename=cotizacion-${budget.number}.pdf`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Error generando PDF:', err);
+    res.status(500).json({ error: 'No se pudo generar el PDF: ' + (err.message || 'error interno') });
+  }
 });
 
 // ============================================================
@@ -1800,13 +2195,16 @@ app.put('/api/technicians/:id', authMiddleware, requireRole(['admin']), (req, re
 
   if (current.user_id) {
     db.prepare(`
-      UPDATE users SET full_name = ?, email = ?, phone = ?, active = ?, password_hash = ?, updated_at = ? WHERE id = ?
+      UPDATE users SET full_name = ?, email = ?, phone = ?, active = ?, password_hash = ?,
+        token_version = CASE WHEN ? THEN COALESCE(token_version, 0) + 1 ELSE COALESCE(token_version, 0) END,
+        updated_at = ? WHERE id = ?
     `).run(
       name !== undefined ? String(name).trim() : current.name,
       email !== undefined ? String(email) : (db.prepare('SELECT email FROM users WHERE id = ?').get(current.user_id)?.email || ''),
       phone !== undefined ? String(phone) : (db.prepare('SELECT phone FROM users WHERE id = ?').get(current.user_id)?.phone || ''),
       active !== undefined ? (active ? 1 : 0) : 1,
       password && String(password).length >= 6 ? bcrypt.hashSync(String(password), 10) : db.prepare('SELECT password_hash FROM users WHERE id = ?').get(current.user_id).password_hash,
+      password && String(password).length >= 6 ? 1 : 0,
       now, current.user_id
     );
   }
@@ -1886,6 +2284,7 @@ app.get('/api/workorders/:id', authMiddleware, (req, res) => {
   `).get(orderId);
 
   if (!row) return res.status(404).json({ error: 'Orden no encontrada' });
+  if (!ensureClientAccess(req, res, row.client_id)) return;
   const history = db.prepare('SELECT * FROM order_history WHERE work_order_id = ? ORDER BY created_at DESC').all(orderId);
   res.json({ workOrder: formatWorkOrder(row), history });
 });
@@ -1934,6 +2333,7 @@ app.put('/api/workorders/:id', authMiddleware, (req, res) => {
   const orderId = Number(req.params.id);
   const current = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(orderId);
   if (!current) return res.status(404).json({ error: 'Orden no encontrada' });
+  if (!ensureClientAccess(req, res, current.client_id)) return;
 
   // Regla estricta: Una orden cerrada no puede modificarse libremente salvo por Administrador
   if (current.status === 'cerrada' && req.user.role !== 'admin') {
@@ -2433,7 +2833,7 @@ app.post('/api/sales', authMiddleware, (req, res) => {
   const { clientId: passedClientId, items = [], discount = 0, paymentMethod = 'efectivo', cashReceived = null, qrReference = '', notes = '' } = req.body;
   if (!items || items.length === 0) return res.status(400).json({ error: 'El carrito o venta no contiene productos' });
 
-  const clientId = passedClientId || (req.user.role === 'cliente' ? getOrCreateClientIdForUser(req.user) : null);
+  const clientId = clientIdForRequest(req, passedClientId);
 
   // 1. Validar stock disponible para todos los items
   for (const it of items) {
@@ -2648,7 +3048,7 @@ app.get('/api/maintenances', authMiddleware, (req, res) => {
 });
 
 // Una sola llamada para pintar la pantalla de mantenimientos (reduce la latencia)
-app.get('/api/maintenances/workbench', authMiddleware, (req, res) => {
+app.get('/api/maintenances/workbench', authMiddleware, requireRole(['admin', 'vendedor', 'tecnico']), (req, res) => {
   const maintenances = db.prepare(`
     SELECT m.*, c.name as client_name, t.name as technician_name, ii.name as item_name
     FROM maintenances m
@@ -2814,6 +3214,9 @@ app.post('/api/warranties', authMiddleware, requireRole(['admin', 'vendedor']), 
 
 app.post('/api/warranties/:id/claims', authMiddleware, (req, res) => {
   const warrantyId = Number(req.params.id);
+  const warranty = db.prepare('SELECT id, client_id FROM warranties WHERE id = ?').get(warrantyId);
+  if (!warranty) return res.status(404).json({ error: 'Garantía no encontrada' });
+  if (!ensureClientAccess(req, res, warranty.client_id)) return;
   const { description } = req.body;
   if (!description) return res.status(400).json({ error: 'Descripción del reclamo requerida' });
 
@@ -3094,6 +3497,9 @@ app.put('/api/warranties/:id', authMiddleware, requireRole(['admin', 'vendedor']
 
 app.get('/api/warranties/:id/claims', authMiddleware, (req, res) => {
   const warrantyId = Number(req.params.id);
+  const warranty = db.prepare('SELECT id, client_id FROM warranties WHERE id = ?').get(warrantyId);
+  if (!warranty) return res.status(404).json({ error: 'Garantía no encontrada' });
+  if (!ensureClientAccess(req, res, warranty.client_id)) return;
   const rows = db.prepare(`
     SELECT wc.*, w.number, u.full_name as user_name
     FROM warranty_claims wc
@@ -3184,8 +3590,16 @@ setInterval(() => {
 }, 4 * 60 * 60 * 1000);
 
 app.listen(port, () => {
+  let dbInfo = 'SQLite local (NO persistente en Render)';
+  try {
+    if (process.env.DATABASE_URL) {
+      const u = new URL(process.env.DATABASE_URL);
+      dbInfo = `PostgreSQL ${u.hostname}${u.port ? ':' + u.port : ''}${u.pathname}`;
+    }
+  } catch (e) { dbInfo = 'PostgreSQL (host no legible)'; }
   console.log(`====================================================`);
   console.log(`  SYSTEMHOME SECURITY API v2.0 LISTENING ON PORT ${port}`);
   console.log(`  http://localhost:${port}`);
+  console.log(`  BASE DE DATOS ACTIVA: ${dbInfo}`);
   console.log(`====================================================`);
 });

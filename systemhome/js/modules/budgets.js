@@ -245,6 +245,7 @@ const BudgetsModule = {
         document.getElementById('searchBudget')?.addEventListener('input', () => this.filter());
         document.getElementById('filterBudgetStatus')?.addEventListener('change', () => this.filter());
         document.getElementById('budgetClient')?.addEventListener('change', () => this.toggleProspectFields());
+        this.bindWhatsAppButtons();
     },
 
     budgetItems: [],
@@ -273,11 +274,6 @@ const BudgetsModule = {
             const displayName = client?.name || b.prospectName || 'Prospecto';
             const recipient = client?.email || b.prospectEmail || '';
             const phone = client?.phone || b.prospectPhone || '';
-            const waText = encodeURIComponent(`Hola ${displayName}, le compartimos la cotización ${b.number} por Bs. ${Number(b.total || 0).toLocaleString('es-PY')}.`);
-            const waUrl = phone
-                ? `https://wa.me/591${String(phone).replace(/\D/g, '')}?text=${waText}`
-                : '';
-
             return `<tr>
           <td><strong>${this.escapeHtml(b.number)}</strong></td>
           <td>
@@ -294,7 +290,7 @@ const BudgetsModule = {
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.view(${b.id})" title="Ver detalle">👁️</button>
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.downloadPdf(${b.id}, '${b.number}')" title="Descargar PDF">📄 PDF</button>
               <button class="btn btn-sm btn-info" onclick="BudgetsModule.openEmailModal(${b.id})" title="Enviar por correo real con PDF">✉️ Correo</button>
-              ${waUrl ? `<a href="${waUrl}" target="_blank" class="btn btn-sm btn-success" title="Compartir por WhatsApp">📱</a>` : ''}
+              <button class="btn btn-sm btn-success js-share-wa" data-budget-id="${b.id}" data-phone="${this.escapeAttr(phone)}" title="Compartir PDF por WhatsApp">📱 PDF</button>
               <button class="btn btn-sm btn-secondary" onclick="BudgetsModule.edit(${b.id})" title="Editar">✏️</button>
               ${b.status === 'borrador' ? `<button class="btn btn-sm btn-primary" onclick="BudgetsModule.sendToClient(${b.id})" title="Marcar como enviado al portal">📨</button>` : ''}
               ${b.status === 'enviado' ? `<button class="btn btn-sm btn-success" onclick="BudgetsModule.approve(${b.id})" title="Aprobar">✅</button>` : ''}
@@ -311,6 +307,18 @@ const BudgetsModule = {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    },
+
+    escapeAttr(text) {
+        return this.escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+
+    bindWhatsAppButtons() {
+        document.querySelectorAll('#budgetsTableBody [data-budget-id].js-share-wa').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.shareWhatsApp(Number(btn.dataset.budgetId), btn.dataset.phone || '');
+            });
+        });
     },
 
     getServiceLabel(type) {
@@ -349,7 +357,10 @@ const BudgetsModule = {
         }
 
         const tbody = document.getElementById('budgetsTableBody');
-        if (tbody) tbody.innerHTML = this.renderTableRows(budgets, clients);
+        if (tbody) {
+            tbody.innerHTML = this.renderTableRows(budgets, clients);
+            this.bindWhatsAppButtons();
+        }
     },
 
     itemSubtotal(item) {
@@ -521,10 +532,122 @@ const BudgetsModule = {
         document.getElementById('budgetService')?.focus();
     },
 
+    normalizeWhatsAppPhone(phone) {
+        const digits = String(phone || '').replace(/\D/g, '');
+        if (!digits) return '';
+        if (digits.startsWith('591')) return digits;
+        if (digits.startsWith('0')) return '591' + digits.slice(1);
+        return '591' + digits;
+    },
+
+    whatsappText(budget) {
+        const client = DB.getClient(budget.clientId);
+        const name = budget.prospectName || client?.name || 'cliente';
+        const total = Number(budget.total || 0).toLocaleString('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        return `Hola ${name}, le compartimos la cotización ${budget.number} por Bs. ${total}.`;
+    },
+
+    // Web Share API: adjunta el PDF real. Nunca afirma "enviado" si el usuario
+    // cancela o el dispositivo no soporta archivos.
+    async shareWhatsApp(id, phone = '') {
+        const budget = DB.getBudget(id);
+        if (!budget) {
+            App.showToast('No se encontró la cotización', 'error');
+            return;
+        }
+        const text = this.whatsappText(budget);
+        const number = budget.number || String(id);
+
+        let shareSupported = false;
+        try {
+            const probe = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'prueba.pdf', { type: 'application/pdf' });
+            shareSupported = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [probe] }));
+        } catch (e) {
+            shareSupported = false;
+        }
+
+        if (!shareSupported) {
+            await this.whatsappFallback(id, phone, text, 'este navegador no permite adjuntar archivos PDF');
+            return;
+        }
+
+        try {
+            const file = await DB.getBudgetPdfFile(id);
+            if (!navigator.canShare({ files: [file] })) {
+                await this.whatsappFallback(id, phone, text, 'el dispositivo rechazó el PDF');
+                return;
+            }
+            await navigator.share({ files: [file], title: `Cotización ${number}`, text });
+            App.showToast('PDF entregado al selector de compartir del dispositivo', 'success');
+        } catch (err) {
+            if (err && err.name === 'AbortError') {
+                App.showToast('Compartir cancelado; no se envió ningún archivo', 'warning');
+                return;
+            }
+            await this.whatsappFallback(id, phone, text, err?.message || 'no se pudo adjuntar el PDF');
+        }
+    },
+
+    async whatsappFallback(id, phone, text, reason) {
+        let downloaded = false;
+        let filename = '';
+        try {
+            const file = await DB.getBudgetPdfFile(id);
+            DB._downloadBlob(file, file.name);
+            downloaded = true;
+            filename = file.name;
+        } catch (err) {
+            console.error('No se pudo descargar el PDF para WhatsApp:', err);
+        }
+
+        const message = downloaded
+            ? `${text}\n\nEl PDF "${filename}" fue descargado en este dispositivo. Por favor adjúntalo manualmente a este chat; no fue enviado automáticamente.`
+            : `${text}\n\nNo pude generar el PDF en este momento. No se ha enviado ningún archivo.`;
+        const waPhone = this.normalizeWhatsAppPhone(phone);
+
+        if (waPhone) {
+            const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(message)}`;
+            const opened = window.open(url, '_blank', 'noopener,noreferrer');
+            if (!opened) this.showWhatsAppLink(url);
+            App.showToast(
+                downloaded
+                    ? `PDF descargado (${filename}). WhatsApp se abrió con instrucciones: adjunte el archivo manualmente. Motivo: ${reason}`
+                    : `No se pudo descargar el PDF (${reason}). WhatsApp se abrió solo con el mensaje; no se envió archivo.`,
+                downloaded ? 'warning' : 'error'
+            );
+        } else {
+            App.showToast(
+                downloaded
+                    ? `PDF descargado (${filename}). No hay teléfono registrado para abrir WhatsApp; adjunte el archivo manualmente.`
+                    : `No hay teléfono registrado y tampoco se pudo descargar el PDF (${reason}).`,
+                'error'
+            );
+        }
+    },
+
+    showWhatsAppLink(url) {
+        if (document.getElementById('shWhatsAppLinkModal')) return;
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay show';
+        modal.id = 'shWhatsAppLinkModal';
+        modal.innerHTML = `
+          <div class="modal" style="max-width:480px;">
+            <div class="modal-header">
+              <h3>📱 Abrir WhatsApp</h3>
+              <button class="modal-close" onclick="document.getElementById('shWhatsAppLinkModal').remove()">✕</button>
+            </div>
+            <div class="modal-body">
+              <p>El navegador bloqueó la apertura automática. Toque el enlace para abrir el chat. Si el PDF se descargó, adjúntelo manualmente.</p>
+              <a class="btn btn-success" href="${this.escapeAttr(url)}" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>
+            </div>
+          </div>`;
+        document.body.appendChild(modal);
+    },
+
     async downloadPdf(id, number = '') {
         try {
             const result = await DB.downloadBudgetPdf(id, number);
-            App.showToast(`PDF descargado: ${result.filename}`, 'success');
+            App.showToast(`PDF descargado correctamente: ${result.filename}`, 'success');
         } catch (err) {
             App.showToast(err.message || 'No se pudo descargar el PDF', 'error');
         }
@@ -671,7 +794,6 @@ const BudgetsModule = {
         const displayPhone = client?.phone || budget.prospectPhone || '-';
         const displayEmail = client?.email || budget.prospectEmail || '';
         const items = budget.items || [];
-        const waText = encodeURIComponent(`Hola ${displayName}, adjuntamos el detalle del Presupuesto ${budget.number} por un total de ${DB.formatCurrency(budget.total)}.`);
 
         const modal = document.createElement('div');
         modal.className = 'modal-overlay show';
@@ -740,9 +862,9 @@ const BudgetsModule = {
               <button class="btn btn-info" onclick="this.closest('.modal-overlay').remove(); BudgetsModule.openEmailModal(${budget.id})">
                 ✉️ Enviar por correo
               </button>
-              <a href="https://wa.me/591${String(displayPhone).replace(/\D/g, '')}?text=${waText}" target="_blank" class="btn btn-success">
-                📱 Compartir por WhatsApp
-              </a>
+              <button class="btn btn-success js-share-wa" data-budget-id="${budget.id}" data-phone="${this.escapeAttr(displayPhone)}" title="Compartir PDF real por WhatsApp">
+                📱 Compartir PDF por WhatsApp
+              </button>
               <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">
                 Cerrar
               </button>
@@ -750,6 +872,11 @@ const BudgetsModule = {
           </div>
         `;
         document.body.appendChild(modal);
+        modal.querySelectorAll('.js-share-wa').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.shareWhatsApp(Number(btn.dataset.budgetId), btn.dataset.phone || '');
+            });
+        });
     },
 
     openEmailModal(id) {
@@ -802,7 +929,11 @@ const BudgetsModule = {
         if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando...'; }
         try {
             const result = await DB.emailBudget(id, { to: email, message: message || '', markSent: true });
-            App.showToast(`Cotización enviada a ${result?.to || email} con PDF adjunto`, 'success');
+            if (result?.sent) {
+                App.showToast(`Cotización enviada a ${result.to || email} con PDF adjunto`, 'success');
+            } else {
+                App.showToast('El servidor no confirmó el envío del correo; revise la configuración SMTP', 'warning');
+            }
             document.getElementById('budgetEmailModal')?.remove();
             this.render();
         } catch (err) {

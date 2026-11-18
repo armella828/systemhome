@@ -186,6 +186,8 @@ const Auth = {
     document.getElementById('loginFormContainer').style.display = 'none';
     document.getElementById('registerFormContainer').style.display = 'block';
     document.getElementById('registerError').style.display = 'none';
+    const success = document.getElementById('registerSuccess');
+    if (success) success.style.display = 'none';
   },
 
   showLogin() {
@@ -195,59 +197,99 @@ const Auth = {
     document.getElementById('loginForm').reset();
   },
 
-  handleRegister(event) {
+  async handleRegister(event) {
     event.preventDefault();
-    const name = document.getElementById('regName').value.trim();
-    const email = document.getElementById('regEmail').value.trim();
-    const phone = document.getElementById('regPhone').value.trim();
-    const username = document.getElementById('regUsername').value.trim();
-    const password = document.getElementById('regPassword').value;
-    const confirmPassword = document.getElementById('regConfirmPassword').value;
+    const value = id => (document.getElementById(id)?.value || '').trim();
+    const name = value('regName');
+    const email = value('regEmail');
+    const phone = value('regPhone');
+    const username = value('regUsername');
+    const password = document.getElementById('regPassword')?.value || '';
+    const confirmPassword = document.getElementById('regConfirmPassword')?.value || '';
     const errorEl = document.getElementById('registerError');
-
-    if (!name || !email || !username || !password) {
-      errorEl.textContent = 'Por favor complete todos los campos obligatorios.';
-      errorEl.style.display = 'block';
-      return false;
-    }
-
-    if (password.length < 6) {
-      errorEl.textContent = 'La contraseña debe tener al menos 6 caracteres.';
-      errorEl.style.display = 'block';
-      return false;
-    }
-
-    if (password !== confirmPassword) {
-      errorEl.textContent = 'Las contraseñas no coinciden.';
-      errorEl.style.display = 'block';
-      return false;
-    }
-
-    if (DB.isUsernameDuplicate(username)) {
-      errorEl.textContent = 'El nombre de usuario ya está en uso. Elija otro.';
-      errorEl.style.display = 'block';
-      return false;
-    }
+    const successEl = document.getElementById('registerSuccess');
+    const btn = document.getElementById('registerSubmitBtn');
 
     errorEl.style.display = 'none';
+    successEl.style.display = 'none';
 
-    const newUser = DB.addUser({
-      username: username,
-      password: password,
-      name: name,
-      email: email,
-      phone: phone,
-      role: 'cliente'
-    });
-
-    if (newUser) {
-      App.showNotification('¡Cuenta de cliente creada exitosamente!', 'success');
-      this.login(newUser);
-    } else {
-      errorEl.textContent = 'Error al registrar la cuenta. Intente nuevamente.';
+    const fail = message => {
+      errorEl.textContent = message;
       errorEl.style.display = 'block';
+      return false;
+    };
+
+    if (!name || !email || !username || !password) {
+      return fail('Por favor complete los campos obligatorios (*).');
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return fail('Ingrese un correo electrónico válido.');
+    }
+    if (!/^[A-Za-z0-9._-]{4,20}$/.test(username)) {
+      return fail('El usuario debe tener entre 4 y 20 caracteres (letras, números, punto, guion o guion bajo).');
+    }
+    if (password.length < 8) {
+      return fail('La contraseña debe tener al menos 8 caracteres.');
+    }
+    if (password !== confirmPassword) {
+      return fail('Las contraseñas no coinciden.');
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="login-btn-text"><strong>Creando cuenta...</strong></span>'; }
+    try {
+      const result = await DB.registerUser({
+        username,
+        password,
+        name,
+        email,
+        phone,
+        documentId: value('regDocumentId'),
+        clientType: value('regClientType') || 'persona',
+        address: value('regAddress'),
+        city: value('regCity')
+      });
+      if (result?.error) throw new Error(result.error);
+      if (!result?.user) throw new Error('El servidor no confirmó la creación de la cuenta.');
+
+      const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+      const safeEmail = App.escapeHtml(email);
+      let html = `<strong>✓ Cuenta creada correctamente.</strong><br>`;
+      html += result.emailSent
+        ? `Revise su correo (<strong>${safeEmail}</strong>) y haga clic en el enlace de verificación para poder ingresar.`
+        : `No se pudo enviar el correo de verificación. Contacte al administrador o intente reenviarlo.`;
+      if (result.devToken) {
+        html += `<br><small>Modo desarrollo: <a href="${base}/auth/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta ahora</a>.</small>`;
+      }
+      html += `<br><button type="button" class="btn btn-sm btn-secondary" data-resend style="margin-top:8px;">Reenviar correo de verificación</button>`;
+      successEl.innerHTML = html;
+      successEl.style.display = 'block';
+      successEl.querySelector('[data-resend]')?.addEventListener('click', () => this.resendVerification(email));
+      document.getElementById('registerForm')?.reset();
+      App.showNotification('Cuenta creada. Verifique su correo antes de ingresar.', 'success');
+    } catch (err) {
+      return fail(err.message || 'No se pudo registrar la cuenta. Intente nuevamente.');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="login-btn-text"><strong>Crear Mi Cuenta</strong></span>';
+      }
     }
     return false;
+  },
+
+  async resendVerification(email) {
+    const successEl = document.getElementById('registerSuccess');
+    try {
+      const result = await DB.resendVerification(email);
+      if (result?.error) throw new Error(result.error);
+      App.showToast(result.message || 'Solicitud de reenvío procesada', result.message?.includes('enviado') ? 'success' : 'warning');
+      if (result.devToken && successEl) {
+        const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+        successEl.innerHTML += `<br><small>Nuevo enlace de desarrollo: <a href="${base}/auth/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta</a>.</small>`;
+      }
+    } catch (err) {
+      App.showToast(err.message || 'No se pudo reenviar el correo', 'error');
+    }
   },
 
   updateLoginLogo() {
@@ -264,6 +306,7 @@ const App = {
   currentView: 'dashboard',
 
   init() {
+    this.loadSystemSettings();
     this.loadSettings();
     this.initNavigation();
     this.initModules();
@@ -720,12 +763,12 @@ const App = {
 
     if (userId) {
       const res = DB.updateUser(userId, payload);
-      if (res) {
+      if (res?.user) {
         App.showNotification(`Usuario "${username}" actualizado exitosamente`, 'success');
         document.getElementById('userFormModalOverlay')?.remove();
         App.renderUsers(document.getElementById('users-view'));
       } else {
-        App.showNotification('Error al actualizar usuario', 'error');
+        App.showNotification(res?.error || 'Error al actualizar usuario', 'error');
       }
     } else {
       if (!password || password.trim().length < 6) {
@@ -735,12 +778,12 @@ const App = {
       }
       payload.password = password.trim();
       const res = DB.addUserByAdmin(payload);
-      if (res) {
+      if (res?.user) {
         App.showNotification(`🎉 ¡Usuario "${username}" creado exitosamente!`, 'success');
         document.getElementById('userFormModalOverlay')?.remove();
         App.renderUsers(document.getElementById('users-view'));
       } else {
-        App.showNotification('Error al crear usuario. Compruebe que el nombre de usuario no esté duplicado.', 'error');
+        App.showNotification(res?.error || 'No se pudo crear el usuario', 'error');
       }
     }
     if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Usuario'; }
@@ -999,12 +1042,10 @@ const App = {
           </div>
           <div class="card-body">
             <div class="form-group">
-              <label>URL o imagen del QR para pagos</label>
-              <input type="text" id="qrCodeUrl" class="form-control" placeholder="https://... o data:image/..." value="${qrValue}">
-            </div>
-            <div class="form-group">
-              <label for="qrCodeFile">Subir imagen desde el equipo</label>
-              <input type="file" id="qrCodeFile" class="form-control" accept="image/*" onchange="App.handleQRCodeUpload(event)">
+              <label for="qrCodeFile">Seleccione la imagen del QR desde su equipo <span class="text-muted">(obligatorio)</span></label>
+              <input type="file" id="qrCodeFile" class="form-control" accept="image/png,image/jpeg,image/webp" onchange="App.handleQRCodeUpload(event)">
+              <small class="form-text text-muted">Formatos permitidos: PNG, JPG o WEBP. La imagen se guarda en la base de datos, no solo en este navegador.</small>
+              <input type="hidden" id="qrCodeUrl" value="${this.escapeHtml(qrValue)}">
             </div>
             <div id="qrPreview" style="margin:20px 0;text-align:center;">
               ${qrValue ? '<img src="' + qrValue + '" style="max-width:200px;border-radius:8px;border:2px solid #00d4ff;" alt="QR Preview">' : '<div style="color:#64748b;padding:40px;background:#0f172a;border-radius:8px;">Vista previa del QR</div>'}
@@ -1085,39 +1126,69 @@ const App = {
   handleQRCodeUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      App.showNotification('Seleccione un archivo de imagen válido', 'warning');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      App.showNotification('Seleccione una imagen PNG, JPG o WEBP', 'warning');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      App.showNotification('La imagen del QR no debe superar 8 MB', 'warning');
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const result = String(reader.result || '');
-      localStorage.setItem('sh_qr_code_url', result);
       const input = document.getElementById('qrCodeUrl');
       if (input) input.value = result;
-      App.showNotification('QR cargado correctamente', 'success');
-      setTimeout(() => App.renderSettings(document.getElementById('settings-view')), 300);
+      // Se guarda de inmediato en la BD; no basta con localStorage.
+      await App.updateQRCode();
     };
     reader.readAsDataURL(file);
   },
 
-  updateQRCode() {
-    const qrUrl = document.getElementById('qrCodeUrl')?.value.trim();
-    if (!qrUrl) {
-      App.showNotification('Ingrese una URL o imagen válida para el QR', 'warning');
-      return;
+  async updateQRCode() {
+    const qrValue = document.getElementById('qrCodeUrl')?.value.trim();
+    if (!qrValue || !/^data:image\/(png|jpeg|webp);base64,/i.test(qrValue)) {
+      App.showNotification('Seleccione una imagen de QR desde su equipo antes de guardar', 'warning');
+      return false;
     }
-    localStorage.setItem('sh_qr_code_url', qrUrl);
-    App.showNotification('✅ QR de cobranzas actualizado correctamente', 'success');
-    setTimeout(() => {
-      const settingsView = document.getElementById('settings-view');
-      if (settingsView) App.renderSettings(settingsView);
-    }, 250);
+    try {
+      const result = await DB.saveSetting('payment_qr', qrValue);
+      if (!result || result.error) {
+        App.showNotification(result?.error || 'No se pudo guardar el QR en la base de datos', 'error');
+        return false;
+      }
+      localStorage.setItem('sh_qr_code_url', qrValue);
+      App._qrCode = qrValue;
+      document.getElementById('qrPreview').innerHTML =
+        `<img src="${qrValue}" style="max-width:200px;border-radius:8px;border:2px solid #00d4ff;" alt="QR Preview">`;
+      App.showNotification('✅ QR de cobranzas guardado en la base de datos', 'success');
+      return true;
+    } catch (err) {
+      App.showNotification('No se pudo guardar el QR: ' + (err.message || 'error de conexión'), 'error');
+      return false;
+    }
   },
 
   getQRCode() {
-    return localStorage.getItem('sh_qr_code_url') || '';
+    return App._qrCode || localStorage.getItem('sh_qr_code_url') || '';
+  },
+
+  // Carga configuración persistente desde PostgreSQL al iniciar sesión.
+  loadSystemSettings() {
+    try {
+      const qr = DB.getSetting('payment_qr', '');
+      if (qr) {
+        App._qrCode = qr;
+        localStorage.setItem('sh_qr_code_url', qr);
+      }
+      const logo = DB.getSetting('company_logo', '');
+      if (logo) {
+        localStorage.setItem('sh_logo', logo);
+      }
+    } catch (err) {
+      console.warn('No se pudo cargar configuración persistente:', err.message);
+    }
   },
 
   saveProfile() {
@@ -1127,11 +1198,28 @@ const App = {
     const email = document.getElementById('setEmail')?.value.trim();
     const phone = document.getElementById('setPhone')?.value.trim();
 
-    const res = DB.updateUser(user.id, { name, email, phone });
-    if (res) {
-      Auth.setCurrentUser(res);
-      Auth.updateUserUI(res);
-      App.showNotification('Perfil actualizado', 'success');
+    const res = DB.updateOwnProfile({ name, email, phone });
+    if (res?.user) {
+      Auth.setCurrentUser(res.user);
+      Auth.updateUserUI(res.user);
+      if (res.needsVerification) {
+        let msg = 'Perfil actualizado. El correo cambió: verifique la nueva dirección antes de volver a ingresar.';
+        if (res.devToken) {
+          const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+          msg += ' Modo desarrollo: ' + base + '/auth/verify-email?token=' + encodeURIComponent(res.devToken);
+        }
+        Auth.clearCurrentUser();
+        DB._setToken(null);
+        Auth.showLogin();
+        document.getElementById('loginPage').style.display = 'flex';
+        document.getElementById('adminPortal').style.display = 'none';
+        document.getElementById('clientPortal').style.display = 'none';
+        App.showNotification(msg, 'warning');
+      } else {
+        App.showNotification('Perfil actualizado', 'success');
+      }
+    } else {
+      App.showNotification(res?.error || 'No se pudo actualizar el perfil', 'error');
     }
   },
 
