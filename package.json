@@ -7,6 +7,12 @@
     "start": "node backend/server.js",
     "dev": "node backend/server.js",
     "migrate": "node backend/migrate-pg.js",
+    "backup": "node backend/backup.js",
+    "restore": "node backend/restore.js",
+    "rotate-credentials": "node backend/rotate-credentials.js",
+    "test": "node tests/unit.test.js",
+    "test:api": "node tests/api.test.js",
+    "test:all": "npm run test && npm run test:api",
     "start:py": "python backend/server.py"
   },
   "dependencies": {
@@ -15,8 +21,10 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.16",
     "pdfkit": "^0.15.0",
     "pg": "^8.12.0"
   },

@@ -13,6 +13,10 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- App Stylesheet -->
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/recovery.css">
+    <link rel="stylesheet" href="css/login-redesign.css">
+    <link rel="stylesheet" href="css/professional-theme.css">
+    <link rel="stylesheet" href="css/client-portal-pro.css">
 </head>
 
 <body>
@@ -28,8 +32,7 @@
                         <img src="assets/LOGO.png" alt="SYSTEMHOME" onerror="this.onerror=null; this.src='assets/logo.svg'">
                     </div>
                 </div>
-                <h1 class="login-title">SYSTEMHOME SECURITY</h1>
-                <p class="login-subtitle">Sistema de Control y Monitoreo</p>
+                <h1 class="login-title">SYSTEMHOME <span>SECURITY</span></h1>
             </div>
 
             <!-- Access Cards -->
@@ -67,7 +70,7 @@
                     </form>
 
                     <div class="login-register-link">
-                        <p><a href="#" onclick="event.preventDefault(); alert('Función de recuperación de contraseña en desarrollo')">¿Olvidó su contraseña?</a></p>
+                        <p><a href="#" onclick="event.preventDefault(); Auth.showForgotPassword(); return false;">¿Olvidó su contraseña?</a></p>
                         <p style="margin-top: 8px;"><a href="#" onclick="Auth.showRegister(); return false;">Crear una cuenta</a></p>
                     </div>
 
@@ -132,6 +135,22 @@
         </div>
     </div>
 
+    <!-- ==================== MODAL: RECUPERAR CONTRASEÑA ==================== -->
+    <div class="modal-overlay" id="forgotPasswordModal" style="display:none;">
+      <div class="modal-card">
+        <button class="modal-close" onclick="Auth.hideForgotPassword()" aria-label="Cerrar">&times;</button>
+        <h2>Recuperar contraseña</h2>
+        <p>Ingrese su correo electrónico. Le enviaremos un enlace seguro para restablecer su contraseña.</p>
+        <form onsubmit="return Auth.submitForgotPassword(event)">
+          <label for="forgotEmail">Correo electrónico</label>
+          <input type="email" id="forgotEmail" placeholder="su@correo.com" required autocomplete="email">
+          <div id="forgotMessage" class="login-error" style="display:none;"></div>
+          <button type="submit" class="login-btn login-btn-admin">Enviar enlace de recuperación</button>
+        </form>
+        <div class="login-register-link"><p><a href="#" onclick="event.preventDefault(); Auth.hideForgotPassword(); return false;">Volver al inicio de sesión</a></p></div>
+      </div>
+    </div>
+
     <!-- ==================== ADMIN & OPERATIONAL PORTAL ==================== -->
     <div class="app-container" id="adminPortal" style="display:none;">
 
@@ -183,6 +202,9 @@
                 </a>
 
                 <div class="nav-section" data-section="admin-only">Análisis & Auditoría</div>
+                <a class="nav-item" data-view="intelligence" title="SYSTEMHOME INTELLIGENCE - Ciencia de Datos">
+                    <span class="nav-icon">🧠</span> INTELLIGENCE
+                </a>
                 <a class="nav-item" data-view="reports" title="Reportes y Métricas">
                     <span class="nav-icon">📈</span> Reportes
                 </a>
@@ -191,6 +213,9 @@
                 </a>
 
                 <div class="nav-section" data-section="system-only">Sistema & Seguridad</div>
+                <a class="nav-item" data-view="technicians" title="Gestión de Técnicos">
+                    <span class="nav-icon">🧑‍🔧</span> Técnicos
+                </a>
                 <a class="nav-item" data-view="backup" title="Copias de Seguridad (Backup)">
                     <span class="nav-icon">💾</span> Copias de Seguridad
                 </a>
@@ -257,10 +282,12 @@
                 <section class="view-section" id="inventory-view"></section>
                 <section class="view-section" id="maintenances-view"></section>
                 <section class="view-section" id="alerts-view"></section>
+                <section class="view-section" id="intelligence-view"></section>
                 <section class="view-section" id="reports-view"></section>
                 <section class="view-section" id="audit-view"></section>
                 <section class="view-section" id="backup-view"></section>
                 <section class="view-section" id="users-view"></section>
+                <section class="view-section" id="technicians-view"></section>
                 <section class="view-section" id="settings-view"></section>
                 <section class="view-section" id="notifications-view"></section>
             </div>
@@ -353,8 +380,10 @@
     <script src="js/modules/reports.js"></script>
     <script src="js/modules/audit.js"></script>
     <script src="js/modules/backup.js"></script>
+    <script src="js/modules/intelligence.js"></script>
     <script src="js/modules/notifications.js"></script>
     <script src="js/modules/client-portal.js"></script>
+    <script src="js/realtime.js"></script>
     <script src="js/app.js"></script>
 </body>
 

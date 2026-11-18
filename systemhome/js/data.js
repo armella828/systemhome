@@ -215,6 +215,11 @@ const DB = {
     return result?.request || null;
   },
 
+  // Una sola llamada asíncrona para crear cliente + solicitud + presupuesto.
+  submitQuoteRequest(data) {
+    return this._requestAsync('POST', '/requests', data);
+  },
+
   updateRequest(id, data) {
     const result = this._request('PUT', `/requests/${id}`, data);
     return result?.request || null;
@@ -241,9 +246,17 @@ const DB = {
     return result?.budget || null;
   },
 
+  addBudgetAsync(data) {
+    return this._requestAsync('POST', '/budgets', data);
+  },
+
   updateBudget(id, data) {
     const result = this._request('PUT', `/budgets/${id}`, data);
     return result?.budget || null;
+  },
+
+  updateBudgetAsync(id, data) {
+    return this._requestAsync('PUT', `/budgets/${id}`, data);
   },
 
   sendBudget(id) {
@@ -261,9 +274,55 @@ const DB = {
     return result?.budget || null;
   },
 
-  exportBudgetPdf(id) {
+  async fetchBudgetPdf(id, download = true) {
     const token = this._getToken();
-    window.open(`${this._baseUrl}/budgets/${id}/export?token=${encodeURIComponent(token || '')}`, '_blank');
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const resp = await fetch(`${this._baseUrl}/budgets/${id}/export?${download ? 'download=1' : 'download=0'}`, { headers });
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.json()).error || ''; } catch (e) { /* cuerpo no JSON */ }
+      throw new Error(detail || `No se pudo generar el PDF (HTTP ${resp.status})`);
+    }
+    const blob = await resp.blob();
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : `cotizacion-${id}.pdf`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return { filename, bytes: blob.size };
+  },
+
+  exportBudgetPdf(id) {
+    return this.fetchBudgetPdf(id, false);
+  },
+
+  downloadBudgetPdf(id, number = '') {
+    // Enlace directo dentro del clic del usuario: evita que el navegador bloquee
+    // descargas programáticas después de un fetch asíncrono.
+    const token = this._getToken();
+    const filename = `cotizacion-${number || id}.pdf`;
+    const url = `${this._baseUrl}/budgets/${id}/export?download=1&token=${encodeURIComponent(token || '')}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 1500);
+    return Promise.resolve({ filename });
+  },
+
+  emailBudget(id, payload) {
+    return this._requestAsync('POST', `/budgets/${id}/email`, payload);
   },
 
   // --- Órdenes de Trabajo (Work Orders) ---
@@ -324,6 +383,18 @@ const DB = {
   getTechnicians() {
     const result = this._request('GET', '/technicians');
     return result?.technicians || [];
+  },
+
+  addTechnician(data) {
+    return this._requestAsync('POST', '/technicians', data);
+  },
+
+  updateTechnician(id, data) {
+    return this._requestAsync('PUT', `/technicians/${id}`, data);
+  },
+
+  deleteTechnician(id) {
+    return this._requestAsync('DELETE', `/technicians/${id}`);
   },
 
   // --- Inventario y Catálogo ---
@@ -403,14 +474,26 @@ const DB = {
     return this.getMaintenances();
   },
 
+  getMaintenanceWorkbench() {
+    return this._request('GET', '/maintenances/workbench') || { maintenances: [], clients: [], inventory: [] };
+  },
+
   addMaintenance(data) {
     const result = this._request('POST', '/maintenances', data);
     return result?.maintenance || null;
   },
 
+  addMaintenanceAsync(data) {
+    return this._requestAsync('POST', '/maintenances', data);
+  },
+
   updateMaintenance(id, data) {
     const result = this._request('PUT', `/maintenances/${id}`, data);
     return result?.maintenance || null;
+  },
+
+  updateMaintenanceAsync(id, data) {
+    return this._requestAsync('PUT', `/maintenances/${id}`, data);
   },
 
   completeMaintenance(id, data) {
@@ -558,6 +641,16 @@ const DB = {
     return this.markNotificationAsRead(id);
   },
 
+  // --- Configuración persistida ---
+  getSetting(key, fallback = null) {
+    const result = this._request('GET', `/settings/${encodeURIComponent(key)}`);
+    return result && result.value !== undefined ? result.value : fallback;
+  },
+
+  saveSetting(key, value) {
+    return this._requestAsync('PUT', `/settings/${encodeURIComponent(key)}`, { value });
+  },
+
   // ============================================================
   // HELPERS DE FORMATEO (agregados para compatibilidad)
   // ============================================================
@@ -587,5 +680,25 @@ const DB = {
   formatCurrency(value) {
     const num = Number(value || 0);
     return num.toLocaleString('es-PY') + ' Bs';
+  },
+
+  // ============================================================
+  // SYSTEMHOME INTELLIGENCE
+  // ============================================================
+
+  getIntelligenceStatus() {
+    return this._request('GET', '/intelligence/status') || {};
+  },
+
+  getIntelligenceMetrics() {
+    return (this._request('GET', '/intelligence/metrics') || {}).metrics || [];
+  },
+
+  getIntelligenceInsights() {
+    return (this._request('GET', '/intelligence/insights') || {}).insights || [];
+  },
+
+  runIntelligence() {
+    return this._request('POST', '/intelligence/run');
   }
 };

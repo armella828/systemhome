@@ -9,6 +9,7 @@ const InventoryModule = {
   currentTab: 'items', // 'items', 'movements'
   tempImageBase64: null,
   tempImageFilename: null,
+  IMAGE_FALLBACK: 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90"><rect width="120" height="90" fill="#e2e8f0"/><text x="60" y="55" text-anchor="middle" font-size="40">📦</text></svg>'),
 
   init() {
     this.render();
@@ -26,7 +27,7 @@ const InventoryModule = {
       <div class="module-header">
         <div>
           <h2>Inventario y Catálogo de Equipos</h2>
-          <p class="module-subtitle">Administración de productos, precios en Guaraníes, stock, fotos e integración con el portal de clientes</p>
+          <p class="module-subtitle">Administración de productos, precios en Bolivianos (Bs.), stock, fotos e integración con el portal de clientes</p>
         </div>
         <div class="module-actions">
           <button class="btn btn-secondary" onclick="InventoryModule.refresh()" title="Recargar inventario">🔄 Actualizar</button>
@@ -195,7 +196,7 @@ const InventoryModule = {
                 </div>
                 <div class="form-group flex-1">
                   <label class="required">Precio de Venta (Bs.)</label>
-                  <input type="number" class="form-control" id="invPrice" value="0" min="0" step="1000" required>
+                  <input type="number" class="form-control" id="invPrice" value="0" step="any" required>
                 </div>
               </div>
 
@@ -278,13 +279,16 @@ const InventoryModule = {
     };
 
     return items.map((item, i) => {
-      const imgUrl = item.imageUrl || (item.imagePath ? `/uploads/${item.imagePath}` : 'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=600&auto=format&fit=crop&q=80');
+      const imgUrl = item.imageUrl || (item.imagePath ? `/uploads/${item.imagePath}` : this.IMAGE_FALLBACK);
+      const fallback = this.escapeHtml(this.IMAGE_FALLBACK);
 
       return `
         <tr>
           <td>${i + 1}</td>
           <td>
-            <img src="${imgUrl}" alt="${this.escapeHtml(item.name)}" style="width:48px;height:38px;border-radius:6px;object-fit:cover;border:1px solid #e2e8f0;" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=600&auto=format&fit=crop&q=80'">
+            <img src="${this.escapeHtml(imgUrl)}" alt="${this.escapeHtml(item.name)}" referrerpolicy="no-referrer" loading="lazy"
+                 style="width:48px;height:38px;border-radius:6px;object-fit:cover;border:1px solid #e2e8f0;"
+                 onerror="this.onerror=null; this.src='${fallback}'">
           </td>
           <td>
             <strong>${this.escapeHtml(item.name)}</strong>
@@ -378,7 +382,11 @@ const InventoryModule = {
       document.getElementById('invImageFile').value = '';
 
       if (item.imageUrl) {
-        if (previewImg) { previewImg.src = item.imageUrl; previewImg.style.display = 'block'; }
+        if (previewImg) {
+          previewImg.onerror = () => { previewImg.onerror = null; previewImg.src = this.IMAGE_FALLBACK; };
+          previewImg.src = item.imageUrl;
+          previewImg.style.display = 'block';
+        }
         if (previewText) previewText.textContent = 'Imagen guardada: ' + item.imageUrl.slice(-30);
         if (btnRemove) btnRemove.style.display = 'inline-block';
       } else {
@@ -437,8 +445,13 @@ const InventoryModule = {
     const previewText = document.getElementById('invPreviewText');
     const btnRemove = document.getElementById('btnRemoveImage');
 
-    if (url && url.trim().startsWith('http')) {
-      if (previewImg) { previewImg.src = url.trim(); previewImg.style.display = 'block'; }
+    const clean = String(url || '').trim();
+    if (/^(https?:\/\/|data:image\/|\/uploads\/)/i.test(clean)) {
+      if (previewImg) {
+        previewImg.onerror = () => { previewImg.onerror = null; previewImg.src = this.IMAGE_FALLBACK; };
+        previewImg.src = clean;
+        previewImg.style.display = 'block';
+      }
       if (previewText) previewText.textContent = 'URL externa vinculada';
       if (btnRemove) btnRemove.style.display = 'inline-block';
       this.tempImageBase64 = null;

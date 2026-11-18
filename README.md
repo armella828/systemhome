@@ -20,45 +20,42 @@ El sistema permite gestionar clientes, presupuestos, órdenes de trabajo, técni
 
 ## 3. Tecnologías Utilizadas
 
-### Backend
-- **Python 3.12** con **Flask** (backend principal)
-- **SQLite** (base de datos relacional)
-- JWT (autenticación por tokens)
-- FPDF (generación de PDFs)
+### Backend (producción)
+- **Node.js 20+** con **Express** (`backend/server.js`) — backend único en Render
+- **PostgreSQL** en la nube (`DATABASE_URL`); **SQLite** solo para desarrollo local
+- Adaptador síncrono con Worker real + `SharedArrayBuffer` (misma interfaz `db.prepare()`)
+- JWT + bcryptjs, helmet, CORS estricto, rate limiting, revocación de sesiones
+- Nodemailer (SMTP real), Cloudinary (opcional), PDFKit
+- Motor **SYSTEMHOME INTELLIGENCE** (ETL + modelos analíticos en JavaScript puro)
+- Backups cifrados AES-256 con `pg_dump`/`pg_restore`
+
+> El backend Python/Flask (`backend/server.py`) se conserva como **referencia histórica**, no se despliega en Render.
 
 ### Frontend
-- **HTML5** + **CSS3** (diseño responsive moderno)
+- **HTML5** + **CSS3** (tema profesional navy/cian, responsive)
 - **JavaScript** puro (vanilla JS, sin framework)
-- Font Awesome / Emojis para iconografía
-- Google Fonts (Inter)
-
-### Backup (opcional)
-- Node.js con Express (versión alternativa del backend)
+- Portal del cliente y panel administrativo con diseño unificado
+- Leaflet para geolocalización
 
 ## 4. Requisitos para Ejecutar el Sistema
 
-- **Python 3.10+** instalado
+- **Node.js 20+** y **npm**
+- **PostgreSQL 12+** (local o en la nube)
 - Navegador web moderno (Chrome, Firefox, Edge)
-
-Opcional:
-- Node.js 18+ (solo si desea usar la versión alternativa con Express)
+- Opcional: `pg_dump`/`pg_restore` para backups, cliente SMTP para correo real
 
 ## 5. Instalación de Dependencias
 
-### Backend Python (principal)
-
-```bash
-pip install -r requirements.txt
-```
-
-Las dependencias son:
-- `flask==3.1.3` - Framework web
-- `fpdf==1.7.2` - Generación de PDFs
-
-### Backend Node.js (opcional/alternativo)
-
 ```bash
 npm install
+```
+
+Dependencias principales: `express`, `pg`, `bcryptjs`, `jsonwebtoken`, `helmet`, `cors`,
+`nodemailer`, `pdfkit`, `cloudinary`, `multer`, `dotenv`.
+
+Para el migrador SQLite → PostgreSQL (Python):
+```bash
+pip install psycopg2-binary
 ```
 
 ## 6. Configuración de la Base de Datos
@@ -212,11 +209,8 @@ python tools/api_check.py
 
 ## Documentación adicional
 
-Si deseas, puedo:
-
-- Añadir validación de tamaño/ratio de imagen y generar miniaturas al subir.
-- Implementar eliminación segura de imágenes cuando un equipo se borre (opcional).
-- Preparar un script `push-to-github.ps1` para inicializar el repo y subir a tu URL remota.
+- Auditoría inicial: `docs/AUDITORIA-2026-11-17.md`
+- Guía de operación empresarial: sección 19 más abajo.
 
 
 ## 13. Estructura del Proyecto
@@ -358,4 +352,144 @@ conn.close()
 | Mantenimientos | ✅ | ✅ | ✅ | ✅ | ✅ | - |
 | Usuarios | ✅ | ✅ | - | - | - | - |
 | Configuración | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+## 19. Guía de Operación Empresarial (noviembre 2026)
+
+### 19.1 Arquitectura de producción
+
+```
+Navegador (systemhome/index.html + portal cliente)
+        │  HTTPS / JWT
+        ▼
+Render Web Service  →  npm start  →  backend/server.js (Node/Express)
+        │                              │
+        │                              ├── PostgreSQL cloud (DATABASE_URL)
+        │                              ├── SMTP real (recuperación de contraseña)
+        │                              ├── Cloudinary opcional (imágenes)
+        │                              └── SYSTEMHOME INTELLIGENCE (datasets + métricas)
+        └── frontend estático servido por el propio Express
+```
+
+- `render.yaml`: `runtime: node`, `buildCommand: npm install`, `startCommand: npm start`,
+  `healthCheckPath: /api/health`.
+- Python/Flask queda como referencia; **no se usa en Render**.
+- La persistencia en producción depende de `DATABASE_URL` (PostgreSQL). Si no está definida,
+  el backend usa SQLite solo en local.
+
+### 19.2 Variables de entorno
+
+Copiar `.env.example` a `.env` y completar. **Nunca subir `.env` a GitHub** (ya está en `.gitignore`).
+
+| Variable | Uso | Observación |
+|---|---|---|
+| `DATABASE_URL` | Cadena PostgreSQL | Obligatoria en Render (Neon/Supabase/Render PG) |
+| `JWT_SECRET` | Firma de tokens | ≥32 caracteres aleatorios; producción falla si es débil |
+| `NODE_ENV` | Entorno | `production` en Render |
+| `PORT` | Puerto HTTP | Render asigna 10000 |
+| `FRONTEND_URL`, `APP_URL` | CORS estricto | URL exacta de la app (sin comillas ni barra final) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_FROM_NAME` | Correo real | Necesario para recuperación de contraseña |
+| `RESET_TOKEN_TTL_MINUTES` | Vigencia del token de reseteo | Default 30 |
+| `CLOUDINARY_*` | Imágenes en la nube | Opcional; si falta se usa almacenamiento local |
+| `BACKUP_ENCRYPTION_KEY` | Cifrado AES-256 de backups | Generar con `openssl rand -hex 32` |
+| `BACKUP_DIR`, `BACKUP_RETENTION_DAYS`, `PG_BIN` | Backups | Opcionales |
+| `ADMIN_PASSWORD`, `VENDEDOR_PASSWORD`, `TECNICO_PASSWORD`, `CLIENTE_PASSWORD` | Rotación de credenciales demo | Usar `node backend/rotate-credentials.js` |
+
+### 19.3 Arranque local con PostgreSQL
+
+```bash
+# 1) Base de datos
+createdb systemhome_staging
+export DATABASE_URL='postgresql://usuario:clave@127.0.0.1:5432/systemhome_staging'
+
+# 2) Migrar datos desde el respaldo SQLite (repetible, conserva IDs)
+python backend/migrate_sqlite_to_pg.py \
+  --sqlite ruta/systemhome.sqlite \
+  --pg "$DATABASE_URL"
+# Verificación sin escribir: añadir --verify-only
+
+# 3) Backend y frontend
+npm install
+npm start
+# Abrir http://localhost:3000
+```
+
+Credenciales demo locales: `admin/admin123`, `vendedor/vendedor123`, `tecnico/tecnico123`,
+`cliente/cliente123`. En producción deben rotarse con `npm run rotate-credentials`.
+
+### 19.4 Seguridad
+
+- CORS solo para `FRONTEND_URL`/`APP_URL` (y localhost en desarrollo).
+- Helmet (cabeceras), `X-Powered-By` desactivado, rate limit de login/recuperación.
+- Logout revoca el JWT; cambio de contraseña autenticado; reseteo por token de un solo uso.
+- Validación MIME/base64/tamaño (10 MB) en subidas.
+- PDFs de cotizaciones, órdenes y facturas con control de propiedad por cliente.
+- Rotación de credenciales demo: `npm run rotate-credentials` (lee secretos del entorno).
+
+### 19.5 Backups cifrados
+
+```bash
+# Crear backup (pg_dump → AES-256-CBC + SHA256 + retención)
+npm run backup
+
+# Restaurar (ADVERTENCIA: sobrescribe la BD destino)
+npm run restore -- archivo.dump.enc --yes --db "$DATABASE_URL"
+# Sin --yes solicita confirmación escribiendo SI
+```
+
+Cada backup genera `systemhome-<fecha>.dump.enc` y un `manifest-*.json` con SHA256.
+Los datasets generados por INTELLIGENCE y los backups están excluidos de Git.
+
+### 19.6 SYSTEMHOME INTELLIGENCE
+
+- Acceso: menú **Análisis & Auditoría → INTELLIGENCE** (solo admin).
+- Endpoints: `GET /api/intelligence/status`, `/metrics`, `/insights`;
+  `POST /api/intelligence/run` (admin).
+- Procesa 11 entidades reales, genera CSV en `backend/intelligence/datasets/`
+  (ignorados por Git), calcula 21 métricas y hallazgos de ventas, cobranza, RFM,
+  inventario y técnicos.
+- El pronóstico usa regresión lineal y media móvil; si hay menos de 2 meses de datos,
+  cambia automáticamente a granularidad diaria (`grain: day`).
+- Ejecución verificada: 85 registros, 21 métricas, 5 insights, ~111 ms.
+
+### 19.7 Pruebas automatizadas
+
+```bash
+npm test                 # 11 pruebas unitarias (seguridad + modelos)
+TEST_BASE_URL=http://127.0.0.1:3200 npm run test:api   # 14 pruebas HTTP reales
+# Opcional: probar bloqueo por intentos de login
+TEST_RATE_LIMIT=1 npm run test:api
+```
+
+La suite API crea y elimina un usuario temporal; no modifica datos de negocio.
+Verificación de integridad de migración:
+
+```bash
+python backend/migrate_sqlite_to_pg.py --sqlite respaldo.sqlite --pg "$DATABASE_URL" --verify-only
+```
+
+> Nota: después de usar el sistema, `audit_logs` crece con cada acción (login, análisis, etc.),
+> por lo que esa tabla puede mostrar `DIF` frente al SQLite original. El resto de las tablas
+> de negocio debe permanecer `OK`, con 0 huérfanos y sumas monetarias idénticas.
+
+### 19.8 Despliegue en Render (checklist)
+
+1. Crear PostgreSQL en Render/Neon y copiar `DATABASE_URL`.
+2. Configurar todas las variables de la tabla 19.2 en el Dashboard de Render.
+3. Importar los datos con el migrador (Etapa 3) sobre la BD cloud de **staging**.
+4. Verificar `/api/health`, login, clientes/ventas/dashboard y endpoints de INTELLIGENCE.
+5. Rotar credenciales demo (`npm run rotate-credentials`) y guardar las nuevas claves en un gestor seguro.
+6. Crear el primer backup cifrado (`npm run backup`) y probar una restauración en BD temporal.
+7. Solo tras autorización confirmada: borrado controlado de la venta de prueba `VTA-0001` en producción.
+
+### 19.9 Estado y pendientes externos
+
+- ✅ Auditoría, respaldo original, migración verificada, seguridad, backups, INTELLIGENCE,
+  interfaz profesional, pruebas y configuración Render completados y commiteados.
+- ⏳ Requiere datos externos: `DATABASE_URL` cloud real, credenciales SMTP, URLs exactas
+  de `FRONTEND_URL`/`APP_URL`, acceso a producción para el borrado autorizado de `VTA-0001`
+  y permisos para hacer `git push` al repositorio remoto (hasta ahora solo hay commits locales).
+- ⚠️ No ejecutar migraciones ni restauraciones sobre producción sin respaldo y autorización.
+
  

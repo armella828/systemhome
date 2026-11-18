@@ -1,0 +1,424 @@
+/* ============================================================
+   SYSTEMHOME - Portal del Cliente · Diseño corporativo 2026
+   Azul marino + cian, consistente con el login y los PDF.
+   ============================================================ */
+
+.client-portal {
+    --sh-navy: #0b1f3a;
+    --sh-navy-2: #123a63;
+    --sh-cyan: #0e7490;
+    --sh-cyan-soft: #ecfeff;
+    --sh-ink: #0f172a;
+    --sh-muted: #64748b;
+    background: #f4f7fb;
+    color: var(--sh-ink);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* --- Cabecera --- */
+.client-portal .client-header {
+    background: linear-gradient(115deg, var(--sh-navy) 0%, var(--sh-navy-2) 62%, #0d5f78 130%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 30px rgba(11, 31, 58, 0.18);
+}
+
+.client-portal .client-header-inner {
+    max-width: 1280px;
+    height: auto;
+    min-height: 78px;
+    padding: 12px 26px;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+}
+
+.client-portal .client-logo-mini {
+    background: #ffffff;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+    padding: 4px;
+}
+
+.client-portal .client-header-title h1 {
+    color: #ffffff;
+    font-size: 18px;
+    letter-spacing: 0.6px;
+    font-weight: 800;
+}
+
+.client-portal .client-header-title span {
+    color: #67e8f9;
+    font-size: 10px;
+    letter-spacing: 1.4px;
+}
+
+.client-portal .client-header-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.client-portal .client-user-badge {
+    background: rgba(255, 255, 255, 0.12);
+    color: #e0f2fe;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+}
+
+.client-portal .client-nav-btn {
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 12.5px;
+    padding: 9px 12px;
+    border-radius: 10px;
+}
+
+.client-portal .client-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.13);
+    color: #ffffff;
+}
+
+.client-portal .client-nav-btn.active {
+    background: var(--sh-cyan);
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 6px 16px rgba(14, 116, 144, 0.4);
+}
+
+.client-portal .client-btn-logout {
+    color: #fecaca !important;
+}
+
+.client-portal .client-btn-logout:hover {
+    background: rgba(239, 68, 68, 0.22) !important;
+}
+
+/* --- Contenido --- */
+.client-portal .client-content {
+    max-width: 1280px;
+    padding: 32px 26px 56px;
+}
+
+/* --- Hero --- */
+.portal-hero {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.7fr);
+    gap: 32px;
+    align-items: center;
+    padding: 48px;
+    border-radius: 26px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #0b1f3a 0%, #123a63 58%, #0e7490 140%);
+    box-shadow: 0 20px 50px rgba(11, 31, 58, 0.22);
+}
+
+.portal-hero::before,
+.portal-hero::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.portal-hero::before {
+    width: 360px;
+    height: 360px;
+    right: -90px;
+    top: -140px;
+    background: radial-gradient(circle, rgba(103, 232, 249, 0.22), transparent 70%);
+}
+
+.portal-hero::after {
+    width: 260px;
+    height: 260px;
+    right: 26%;
+    bottom: -160px;
+    border: 30px solid rgba(255, 255, 255, 0.05);
+}
+
+.portal-hero-copy,
+.portal-hero-brand {
+    position: relative;
+    z-index: 1;
+}
+
+.portal-eyebrow {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #67e8f9;
+    margin-bottom: 14px;
+}
+
+.portal-hero h2 {
+    font-size: clamp(28px, 3.4vw, 44px);
+    line-height: 1.12;
+    margin: 0 0 16px;
+    font-weight: 500;
+    letter-spacing: -0.5px;
+}
+
+.portal-hero h2 strong {
+    font-weight: 800;
+    color: #a5f3fc;
+}
+
+.portal-hero p {
+    max-width: 620px;
+    font-size: 15px;
+    line-height: 1.75;
+    color: rgba(255, 255, 255, 0.82);
+    margin: 0 0 26px;
+}
+
+.portal-hero p strong {
+    color: #ffffff;
+}
+
+.portal-hero-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.portal-btn {
+    border: 0;
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.portal-btn:hover {
+    transform: translateY(-2px);
+}
+
+.portal-btn-primary {
+    background: #22d3ee;
+    color: #083344;
+    box-shadow: 0 8px 22px rgba(34, 211, 238, 0.35);
+}
+
+.portal-btn-ghost {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.portal-hero-contact {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 22px;
+    font-size: 12.5px;
+}
+
+.portal-hero-contact a {
+    color: #cffafe;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.portal-hero-contact a:hover {
+    text-decoration: underline;
+}
+
+.portal-hero-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.portal-hero-logo {
+    width: 176px;
+    height: 176px;
+    border-radius: 28px;
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+    transform: rotate(-3deg);
+}
+
+.portal-hero-logo img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.portal-hero-badge {
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+
+/* --- Títulos de sección --- */
+.portal-section-title {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin: 36px 0 18px;
+}
+
+.portal-section-title span {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--sh-navy);
+}
+
+.portal-section-title small {
+    color: var(--sh-muted);
+    font-size: 13px;
+}
+
+/* --- Tarjetas de servicios --- */
+.client-portal .client-services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+    gap: 18px;
+}
+
+.client-portal .client-service-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.client-portal .client-service-card:hover {
+    transform: translateY(-4px);
+    border-color: #67e8f9;
+    box-shadow: 0 14px 30px rgba(14, 116, 144, 0.14);
+}
+
+.client-portal .client-service-card .service-icon {
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+    background: var(--sh-cyan-soft);
+    color: var(--sh-cyan);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.client-portal .client-service-card h4 {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--sh-navy);
+    margin: 0 0 8px;
+}
+
+.client-portal .client-service-card p {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--sh-muted);
+    margin: 0;
+}
+
+/* --- Catálogo --- */
+.client-portal .catalog-header h2 {
+    color: var(--sh-navy);
+    font-size: 24px;
+    font-weight: 800;
+}
+
+.client-portal .catalog-cat-btn {
+    border-radius: 999px;
+    padding: 8px 16px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #475569;
+    font-weight: 600;
+}
+
+.client-portal .catalog-cat-btn.active,
+.client-portal .catalog-cat-btn:hover {
+    background: var(--sh-cyan);
+    border-color: var(--sh-cyan);
+    color: #ffffff;
+}
+
+.client-portal .catalog-item {
+    border-radius: 18px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
+}
+
+.client-portal .catalog-item-img {
+    height: 200px;
+    background: linear-gradient(135deg, #eef2f7, #e2e8f0);
+}
+
+.client-portal .catalog-item-img .cat-badge {
+    background: rgba(11, 31, 58, 0.88);
+    color: #a5f3fc;
+    font-weight: 700;
+}
+
+.client-portal .catalog-item h4 {
+    color: var(--sh-navy);
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.client-portal .item-price {
+    color: var(--sh-cyan);
+    font-size: 19px;
+    font-weight: 800;
+}
+
+/* --- Pie --- */
+.client-portal .client-footer {
+    background: linear-gradient(115deg, #08172c, #0b1f3a);
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.client-portal .client-footer p:first-child {
+    color: #e2e8f0;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+    .portal-hero {
+        grid-template-columns: 1fr;
+        padding: 32px 26px;
+        text-align: center;
+    }
+
+    .portal-hero-copy {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .portal-hero-actions,
+    .portal-hero-contact {
+        justify-content: center;
+    }
+
+    .portal-hero-brand {
+        order: -1;
+    }
+
+    .portal-hero-logo {
+        width: 120px;
+        height: 120px;
+    }
+}

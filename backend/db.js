@@ -14,62 +14,31 @@ if (isPostgres) {
   // server.js doesn't need any changes.
   // ============================================================
   const { Worker } = require('worker_threads');
-  const workerScript = `
-    const { parentPort } = require('worker_threads');
-    const { Pool } = require('pg');
+  // Atomics.wait bloquea el event loop principal: la respuesta debe escribirse
+  // directamente en memoria compartida, no via callbacks on('message').
+  const pgWorker = new Worker(path.join(__dirname, 'pg-worker.js'));
+  const CTRL = new Int32Array(new SharedArrayBuffer(8)); // [0]=listo, [1]=longitud
+  const DATA = new SharedArrayBuffer(16 * 1024 * 1024);
+  let workerFatal = null;
 
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
-
-    pool.on('error', (err) => console.error('PG pool error:', err.message));
-
-    parentPort.on('message', async ({ id, sql, params }) => {
-      try {
-        const result = await pool.query(sql, params || []);
-        parentPort.postMessage({ id, rows: result.rows || [], rowCount: result.rowCount || 0 });
-      } catch (err) {
-        parentPort.postMessage({ id, error: err.message, rows: [], rowCount: 0 });
-      }
-    });
-  `;
-
-  const pgWorker = new Worker(workerScript, { eval: true });
-  const pendingRequests = new Map();
-  let nextId = 1;
-
-  pgWorker.on('message', ({ id, rows, rowCount, error }) => {
-    const pending = pendingRequests.get(id);
-    if (pending) {
-      pendingRequests.delete(id);
-      pending.result = { rows, rowCount, error };
-      pending.done = true;
-      const sab = pending.sab;
-      Atomics.store(sab, 0, 1);
-      Atomics.notify(sab, 0);
-    }
-  });
-
-  pgWorker.on('error', (err) => {
-    console.error('PG Worker thread error:', err.message);
+  pgWorker.on('error', (err) => { workerFatal = err.message; });
+  pgWorker.on('exit', (code) => {
+    if (code !== 0) workerFatal = `PG Worker terminó inesperadamente (código ${code})`;
   });
 
   function pgQuerySync(sql, params = []) {
-    const id = nextId++;
-    const sab = new SharedArrayBuffer(4);
-    const flag = new Int32Array(sab);
-    const pending = { sab, done: false, result: null };
-    pendingRequests.set(id, pending);
-    pgWorker.postMessage({ id, sql, params });
-    Atomics.wait(flag, 0, 0);
-    if (pending.result.error) {
-      throw new Error(pending.result.error);
+    Atomics.store(CTRL, 0, 0);
+    Atomics.store(CTRL, 1, 0);
+    pgWorker.postMessage({ sql, params, ctrlSab: CTRL.buffer, dataSab: DATA });
+    const status = Atomics.wait(CTRL, 0, 0, 15000);
+    if (status === 'timed-out') {
+      throw new Error('Timeout de PostgreSQL (15s): ' + sql.slice(0, 120) + (workerFatal ? ' | ' + workerFatal : ''));
     }
-    return pending.result;
+    const len = Atomics.load(CTRL, 1);
+    const json = Buffer.from(new Uint8Array(DATA, 0, len)).toString('utf8');
+    const result = JSON.parse(json);
+    if (result.error) throw new Error(result.error);
+    return result;
   }
 
   function convertPlaceholders(sql) {
@@ -77,12 +46,19 @@ if (isPostgres) {
     return sql.replace(/\?/g, () => `$${++idx}`);
   }
 
+  // Los INSERT necesitan RETURNING para obtener lastInsertRowid (SQLite lo da gratis)
+  function withReturning(sql) {
+    const trimmed = sql.trim();
+    if (!/^INSERT\b/i.test(trimmed) || /\bRETURNING\b/i.test(trimmed)) return sql;
+    return trimmed.replace(/;?\s*$/, '') + ' RETURNING *';
+  }
+
   db = {
     prepare(sql) {
       return {
         run: (...args) => {
           const params = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
-          const converted = convertPlaceholders(sql);
+          const converted = convertPlaceholders(withReturning(sql));
           const result = pgQuerySync(converted, params);
           return {
             lastInsertRowid: result.rows?.[0]?.id || null,
@@ -122,7 +98,7 @@ if (isPostgres) {
   };
 
   run = (sql, params = []) => {
-    const converted = convertPlaceholders(sql);
+    const converted = convertPlaceholders(withReturning(sql));
     const result = pgQuerySync(converted, params);
     return {
       lastInsertRowid: result.rows?.[0]?.id || null,
@@ -187,7 +163,7 @@ function addColumnIfNotExists(tableName, columnName, columnDef) {
   try {
     if (isPostgres) {
       const exists = get(
-        `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
         [tableName, columnName]
       );
       if (!exists) {
@@ -258,6 +234,8 @@ function initSchema() {
       service_type TEXT, description TEXT, items TEXT,
       labor ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
       discount ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      tax ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      prospect_name TEXT, prospect_phone TEXT, prospect_email TEXT, prospect_ruc TEXT,
       total ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'borrador', source TEXT NOT NULL DEFAULT 'internal',
       valid_until TEXT, conditions TEXT, observations TEXT, estimated_time TEXT,
@@ -278,13 +256,21 @@ function initSchema() {
       budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
       concept TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1,
       unit_price ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      discount_percent ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0,
+      notes TEXT,
       subtotal ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'} NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS technicians (
       id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
       name TEXT NOT NULL, specialty TEXT, phone TEXT, email TEXT,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS work_orders (
       id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
@@ -482,14 +468,31 @@ function initSchema() {
       created_by_user_id INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS intel_runs (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      started_at TEXT NOT NULL, finished_at TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      records_processed INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER, error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS intel_metrics (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+      key TEXT NOT NULL, value ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'},
+      payload TEXT, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS intel_insights (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+      category TEXT NOT NULL, title TEXT NOT NULL, detail TEXT,
+      score ${isPostgres ? 'DOUBLE PRECISION' : 'REAL'}, created_at TEXT NOT NULL
+    );
   `;
 
-  if (isPostgres) {
-    // PostgreSQL: exec handles splitting
-    db.exec(schema);
-  } else {
-    db.exec(schema);
-    // SQLite migrations
+  db.exec(schema);
+
+  // Migraciones idempotentes para AMBOS motores: CREATE TABLE IF NOT EXISTS
+  // no agrega columnas a tablas que ya existen.
     addColumnIfNotExists('inventory_items', 'badge', 'TEXT');
     addColumnIfNotExists('inventory_items', 'show_in_catalog', 'INTEGER NOT NULL DEFAULT 1');
     addColumnIfNotExists('inventory_items', 'min_stock', 'INTEGER NOT NULL DEFAULT 5');
@@ -549,7 +552,14 @@ function initSchema() {
     addColumnIfNotExists('budgets', 'client_response_date', 'TEXT');
     addColumnIfNotExists('budgets', 'client_notes', 'TEXT');
     addColumnIfNotExists('budgets', 'client_response_by_user_id', 'INTEGER REFERENCES users(id)');
-  }
+    addColumnIfNotExists('budgets', 'tax', 'REAL NOT NULL DEFAULT 0');
+    addColumnIfNotExists('budgets', 'prospect_name', 'TEXT');
+    addColumnIfNotExists('budgets', 'prospect_phone', 'TEXT');
+    addColumnIfNotExists('budgets', 'prospect_email', 'TEXT');
+    addColumnIfNotExists('budgets', 'prospect_ruc', 'TEXT');
+    addColumnIfNotExists('budget_items', 'discount_percent', 'REAL NOT NULL DEFAULT 0');
+    addColumnIfNotExists('budget_items', 'notes', 'TEXT');
+    addColumnIfNotExists('technicians', 'user_id', 'INTEGER REFERENCES users(id)');
 }
 
 // ============================================================
@@ -577,7 +587,7 @@ function seedData() {
     run("DELETE FROM roles WHERE name IN ('gerente', 'supervisor', 'almacenista')");
   }
 
-  const roleCount = get('SELECT COUNT(*) as count FROM roles').count;
+  const roleCount = Number(get('SELECT COUNT(*) as count FROM roles').count);
   if (roleCount === 0) {
     if (isPostgres) {
       db.exec(`INSERT INTO roles (name, description) VALUES ('admin', 'Administrador con control total del sistema');
@@ -635,7 +645,7 @@ function seedData() {
     }
   }
 
-  const userCount = get('SELECT COUNT(*) as count FROM users').count;
+  const userCount = Number(get('SELECT COUNT(*) as count FROM users').count);
   if (userCount === 0) {
     const bcrypt = require('bcryptjs');
     const q = isPostgres ? '$1' : '?';
@@ -649,7 +659,7 @@ function seedData() {
       ['cliente', bcrypt.hashSync('cliente123', 10), 'Cliente Residencial', 'cliente@systemhome.com', '0981 666 666', 'cliente', now, now]);
   }
 
-  const serviceCount = get('SELECT COUNT(*) as count FROM services').count;
+  const serviceCount = Number(get('SELECT COUNT(*) as count FROM services').count);
   if (serviceCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const services = [
@@ -668,7 +678,7 @@ function seedData() {
     }
   }
 
-  const techCount = get('SELECT COUNT(*) as count FROM technicians').count;
+  const techCount = Number(get('SELECT COUNT(*) as count FROM technicians').count);
   if (techCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const techs = [
@@ -682,7 +692,7 @@ function seedData() {
     }
   }
 
-  const invCount = get('SELECT COUNT(*) as count FROM inventory_items').count;
+  const invCount = Number(get('SELECT COUNT(*) as count FROM inventory_items').count);
   if (invCount < 10) {
     run('DELETE FROM inventory_items');
     const q = isPostgres ? '$1' : '?';
@@ -711,7 +721,7 @@ function seedData() {
     }
   }
 
-  const clientCount = get('SELECT COUNT(*) as count FROM clients').count;
+  const clientCount = Number(get('SELECT COUNT(*) as count FROM clients').count);
   if (clientCount === 0) {
     const adminUserId = get("SELECT id FROM users WHERE username = 'admin'").id;
     const q = isPostgres ? '$1' : '?';

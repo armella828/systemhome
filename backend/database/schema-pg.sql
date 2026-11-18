@@ -482,3 +482,81 @@ INSERT INTO services (name, description, active) VALUES
   ('Cableado Estructurado', 'Cableado de datos y voz Cat6/Cat6A certificado para empresas', 1),
   ('Redes e Internet', 'Instalación y configuración de redes WiFi de alta velocidad, switches y routers', 1)
 ON CONFLICT (name) DO NOTHING;
+
+-- ============================================================
+-- Tablas adicionales (alertas y recuperacion)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS stock_alerts (
+  id SERIAL PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  alert_type TEXT NOT NULL DEFAULT 'stock_minimo',
+  stock_current INTEGER NOT NULL,
+  stock_min INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pendiente',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by_user_id INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_alerts (
+  id SERIAL PRIMARY KEY,
+  maintenance_id INTEGER NOT NULL REFERENCES maintenances(id) ON DELETE CASCADE,
+  alert_type TEXT NOT NULL,
+  days_before INTEGER,
+  notified_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'enviada'
+);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prt_hash ON password_reset_tokens(token_hash);
+
+CREATE TABLE IF NOT EXISTS mail_log (
+  id SERIAL PRIMARY KEY,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- ============================================================
+-- SYSTEMHOME INTELLIGENCE - Persistencia de ejecuciones
+-- ============================================================
+CREATE TABLE IF NOT EXISTS intel_runs (
+  id SERIAL PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  records_processed INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER,
+  error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS intel_metrics (
+  id SERIAL PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value DOUBLE PRECISION,
+  payload TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intel_metrics_run ON intel_metrics(run_id);
+
+CREATE TABLE IF NOT EXISTS intel_insights (
+  id SERIAL PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES intel_runs(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT,
+  score DOUBLE PRECISION,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intel_insights_run ON intel_insights(run_id);

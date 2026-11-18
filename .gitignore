@@ -64,6 +64,9 @@ desktop.ini
 *.json.bak
 backend/backups/
 
+# SYSTEMHOME INTELLIGENCE - datasets generados con datos reales
+backend/intelligence/datasets/
+
 # Coverage
 .coverage
 htmlcov/

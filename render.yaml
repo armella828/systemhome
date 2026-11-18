@@ -5,6 +5,7 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
@@ -14,12 +15,33 @@ services:
         generateValue: true
       - key: DATABASE_URL
         sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_URL
+        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: FRONTEND_URL
+      - key: SMTP_HOST
         sync: false
-
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MAIL_FROM_NAME
+        sync: false
+      - key: RESET_TOKEN_TTL_MINUTES
+        value: 30
+      - key: BACKUP_ENCRYPTION_KEY
+        sync: false
+      - key: BACKUP_RETENTION_DAYS
+        value: 30

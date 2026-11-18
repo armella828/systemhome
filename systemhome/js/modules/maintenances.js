@@ -11,13 +11,30 @@ const MaintenancesModule = {
         this.render();
     },
 
-    render() {
+    async render() {
         const container = document.getElementById('maintenances-view');
         if (!container) return;
 
-        const maintenances = DB.getMaintenance();
-        const clients = DB.getClients();
-        const inventory = DB.getInventory();
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-body" style="padding:40px;text-align:center;color:var(--gray-500);">
+                    ⏳ Cargando mantenimientos...
+                </div>
+            </div>
+        `;
+
+        let workbench;
+        try {
+            workbench = DB.getMaintenanceWorkbench();
+        } catch (e) {
+            workbench = {
+                maintenances: DB.getMaintenance(),
+                clients: DB.getClients(),
+                inventory: DB.getInventory()
+            };
+        }
+        this.workbench = workbench;
+        const { maintenances, clients, inventory } = workbench;
 
         container.innerHTML = `
         <div class="toolbar">
@@ -185,10 +202,10 @@ const MaintenancesModule = {
     filter() {
         const search = (document.getElementById('searchMaintenance')?.value || '').toLowerCase();
         const statusFilter = document.getElementById('filterMaintenanceStatus')?.value || 'all';
-        const clients = DB.getClients();
-        const inventory = DB.getInventory();
+        const clients = this.workbench?.clients || DB.getClients();
+        const inventory = this.workbench?.inventory || DB.getInventory();
 
-        let maintenances = DB.getMaintenance();
+        let maintenances = [...(this.workbench?.maintenances || DB.getMaintenance())];
         if (search) {
             maintenances = maintenances.filter(m => {
                 const client = clients.find(c => c.id === m.clientId);
@@ -214,7 +231,7 @@ const MaintenancesModule = {
         const title = document.getElementById('maintenanceModalTitle');
 
         if (maintenanceId) {
-            const m = DB.getMaintenance().find(x => x.id === maintenanceId);
+            const m = (this.workbench?.maintenances || DB.getMaintenance()).find(x => x.id === maintenanceId);
             if (!m) return;
             title.textContent = 'Editar Mantenimiento';
             document.getElementById('maintenanceId').value = m.id;
@@ -268,7 +285,7 @@ const MaintenancesModule = {
         return valid;
     },
 
-    save() {
+    async save() {
         if (!this.validate()) return;
 
         const data = {
@@ -282,28 +299,34 @@ const MaintenancesModule = {
         };
 
         const id = parseInt(document.getElementById('maintenanceId').value);
-        if (id) {
-            DB.updateMaintenance(id, data);
-            App.showToast('Mantenimiento actualizado correctamente', 'success');
-        } else {
-            DB.addMaintenance(data);
-            App.showToast('Mantenimiento programado correctamente', 'success');
+        const btn = document.querySelector('#maintenanceModal .modal-footer .btn-primary');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando...'; }
+        try {
+            if (id) await DB.updateMaintenanceAsync(id, data);
+            else await DB.addMaintenanceAsync(data);
+            App.showToast(id ? 'Mantenimiento actualizado correctamente' : 'Mantenimiento programado correctamente', 'success');
+            this.closeModal();
+            await this.render();
+        } catch (err) {
+            App.showToast(err.message || 'No se pudo guardar el mantenimiento', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Mantenimiento'; }
         }
-
-        this.closeModal();
-        this.render();
     },
 
     edit(id) {
         this.openModal(id);
     },
 
-    markDone(id) {
+    async markDone(id) {
         if (confirm('¿Registrar este mantenimiento como realizado?')) {
             const explanation = prompt('Notas / resultado del mantenimiento realizado:');
-            DB.updateMaintenance(id, { status: 'realizado', notes: explanation || '' });
-            App.showToast('Mantenimiento registrado como realizado', 'success');
-            this.render();
+            try {
+                await DB.updateMaintenanceAsync(id, { status: 'realizado', notes: explanation || '' });
+                App.showToast('Mantenimiento registrado como realizado', 'success');
+                await this.render();
+            } catch (err) {
+                App.showToast(err.message || 'No se pudo registrar el mantenimiento', 'error');
+            }
         }
     },
 };
