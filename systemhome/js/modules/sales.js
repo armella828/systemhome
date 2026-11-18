@@ -243,7 +243,10 @@ const SalesModule = {
               <div id="posQrSection" class="pos-payment-subbox" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:1.2rem;text-align:center;">
                 <div style="font-weight:700;color:#166534;margin-bottom:0.5rem;font-size:1.05rem;">📱 Cobro por QR Instantáneo</div>
                 <div style="display:flex;justify-content:center;margin:0.6rem 0;">
-                  <img id="posQrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=SYSTEMHOME%20SECURITY%20-%20Cobro%20Mostrador%20-%20WhatsApp%20%2B59164595762" alt="Código QR de Cobro" style="border:3px solid white;border-radius:8px;box-shadow:0 3px 10px rgba(0,0,0,0.08);width:160px;height:160px;">
+                  <img id="posQrImage" src="" alt="Código QR de Cobro" style="display:none;border:3px solid white;border-radius:8px;box-shadow:0 3px 10px rgba(0,0,0,0.08);width:160px;height:160px;">
+                  <div id="posQrMissing" style="display:none;padding:24px;border:1px dashed #86efac;border-radius:8px;color:#166534;background:#f8fafc;">
+                    Aún no hay QR de cobranza. Cargue la imagen en <strong>Configuración → QR de Cobranzas</strong>.
+                  </div>
                 </div>
                 <p style="font-size:0.85rem;color:#15803d;margin:0.2rem 0;">Escanee desde la app bancaria para transferir</p>
                 <div style="font-size:0.8rem;color:#64748b;">WhatsApp Oficial: <strong>+591 64595762</strong></div>
@@ -394,8 +397,18 @@ const SalesModule = {
       const qrImg = document.getElementById('posQrImage');
       const customQr = App?.getQRCode ? App.getQRCode() : '';
 
+      const missing = document.getElementById('posQrMissing');
       if (qrImg) {
-        qrImg.src = customQr || `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=SYSTEMHOME%20SECURITY%20-%20Cobro%20Bs.%20${total}%20-%20WhatsApp%20%2B59164595762`;
+        if (customQr) {
+          qrImg.src = customQr;
+          qrImg.style.display = 'block';
+          if (missing) missing.style.display = 'none';
+        } else {
+          qrImg.removeAttribute('src');
+          qrImg.style.display = 'none';
+          if (missing) missing.style.display = 'block';
+          App.showToast('Cargue el QR de cobranza en Configuración antes de cobrar con QR', 'warning');
+        }
       }
     }
   },

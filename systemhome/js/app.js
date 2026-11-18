@@ -186,6 +186,8 @@ const Auth = {
     document.getElementById('loginFormContainer').style.display = 'none';
     document.getElementById('registerFormContainer').style.display = 'block';
     document.getElementById('registerError').style.display = 'none';
+    const success = document.getElementById('registerSuccess');
+    if (success) success.style.display = 'none';
   },
 
   showLogin() {
@@ -195,59 +197,99 @@ const Auth = {
     document.getElementById('loginForm').reset();
   },
 
-  handleRegister(event) {
+  async handleRegister(event) {
     event.preventDefault();
-    const name = document.getElementById('regName').value.trim();
-    const email = document.getElementById('regEmail').value.trim();
-    const phone = document.getElementById('regPhone').value.trim();
-    const username = document.getElementById('regUsername').value.trim();
-    const password = document.getElementById('regPassword').value;
-    const confirmPassword = document.getElementById('regConfirmPassword').value;
+    const value = id => (document.getElementById(id)?.value || '').trim();
+    const name = value('regName');
+    const email = value('regEmail');
+    const phone = value('regPhone');
+    const username = value('regUsername');
+    const password = document.getElementById('regPassword')?.value || '';
+    const confirmPassword = document.getElementById('regConfirmPassword')?.value || '';
     const errorEl = document.getElementById('registerError');
-
-    if (!name || !email || !username || !password) {
-      errorEl.textContent = 'Por favor complete todos los campos obligatorios.';
-      errorEl.style.display = 'block';
-      return false;
-    }
-
-    if (password.length < 6) {
-      errorEl.textContent = 'La contraseña debe tener al menos 6 caracteres.';
-      errorEl.style.display = 'block';
-      return false;
-    }
-
-    if (password !== confirmPassword) {
-      errorEl.textContent = 'Las contraseñas no coinciden.';
-      errorEl.style.display = 'block';
-      return false;
-    }
-
-    if (DB.isUsernameDuplicate(username)) {
-      errorEl.textContent = 'El nombre de usuario ya está en uso. Elija otro.';
-      errorEl.style.display = 'block';
-      return false;
-    }
+    const successEl = document.getElementById('registerSuccess');
+    const btn = document.getElementById('registerSubmitBtn');
 
     errorEl.style.display = 'none';
+    successEl.style.display = 'none';
 
-    const newUser = DB.addUser({
-      username: username,
-      password: password,
-      name: name,
-      email: email,
-      phone: phone,
-      role: 'cliente'
-    });
-
-    if (newUser) {
-      App.showNotification('¡Cuenta de cliente creada exitosamente!', 'success');
-      this.login(newUser);
-    } else {
-      errorEl.textContent = 'Error al registrar la cuenta. Intente nuevamente.';
+    const fail = message => {
+      errorEl.textContent = message;
       errorEl.style.display = 'block';
+      return false;
+    };
+
+    if (!name || !email || !username || !password) {
+      return fail('Por favor complete los campos obligatorios (*).');
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return fail('Ingrese un correo electrónico válido.');
+    }
+    if (!/^[A-Za-z0-9._-]{4,20}$/.test(username)) {
+      return fail('El usuario debe tener entre 4 y 20 caracteres (letras, números, punto, guion o guion bajo).');
+    }
+    if (password.length < 8) {
+      return fail('La contraseña debe tener al menos 8 caracteres.');
+    }
+    if (password !== confirmPassword) {
+      return fail('Las contraseñas no coinciden.');
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="login-btn-text"><strong>Creando cuenta...</strong></span>'; }
+    try {
+      const result = await DB.registerUser({
+        username,
+        password,
+        name,
+        email,
+        phone,
+        documentId: value('regDocumentId'),
+        clientType: value('regClientType') || 'persona',
+        address: value('regAddress'),
+        city: value('regCity')
+      });
+      if (result?.error) throw new Error(result.error);
+      if (!result?.user) throw new Error('El servidor no confirmó la creación de la cuenta.');
+
+      const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+      const safeEmail = App.escapeHtml(email);
+      let html = `<strong>✓ Cuenta creada correctamente.</strong><br>`;
+      html += result.emailSent
+        ? `Revise su correo (<strong>${safeEmail}</strong>) y haga clic en el enlace de verificación para poder ingresar.`
+        : `No se pudo enviar el correo de verificación. Contacte al administrador o intente reenviarlo.`;
+      if (result.devToken) {
+        html += `<br><small>Modo desarrollo: <a href="${base}/auth/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta ahora</a>.</small>`;
+      }
+      html += `<br><button type="button" class="btn btn-sm btn-secondary" data-resend style="margin-top:8px;">Reenviar correo de verificación</button>`;
+      successEl.innerHTML = html;
+      successEl.style.display = 'block';
+      successEl.querySelector('[data-resend]')?.addEventListener('click', () => this.resendVerification(email));
+      document.getElementById('registerForm')?.reset();
+      App.showNotification('Cuenta creada. Verifique su correo antes de ingresar.', 'success');
+    } catch (err) {
+      return fail(err.message || 'No se pudo registrar la cuenta. Intente nuevamente.');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="login-btn-text"><strong>Crear Mi Cuenta</strong></span>';
+      }
     }
     return false;
+  },
+
+  async resendVerification(email) {
+    const successEl = document.getElementById('registerSuccess');
+    try {
+      const result = await DB.resendVerification(email);
+      if (result?.error) throw new Error(result.error);
+      App.showToast(result.message || 'Solicitud de reenvío procesada', result.message?.includes('enviado') ? 'success' : 'warning');
+      if (result.devToken && successEl) {
+        const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+        successEl.innerHTML += `<br><small>Nuevo enlace de desarrollo: <a href="${base}/auth/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta</a>.</small>`;
+      }
+    } catch (err) {
+      App.showToast(err.message || 'No se pudo reenviar el correo', 'error');
+    }
   },
 
   updateLoginLogo() {
@@ -264,6 +306,7 @@ const App = {
   currentView: 'dashboard',
 
   init() {
+    this.loadSystemSettings();
     this.loadSettings();
     this.initNavigation();
     this.initModules();
@@ -720,12 +763,12 @@ const App = {
 
     if (userId) {
       const res = DB.updateUser(userId, payload);
-      if (res) {
+      if (res?.user) {
         App.showNotification(`Usuario "${username}" actualizado exitosamente`, 'success');
         document.getElementById('userFormModalOverlay')?.remove();
         App.renderUsers(document.getElementById('users-view'));
       } else {
-        App.showNotification('Error al actualizar usuario', 'error');
+        App.showNotification(res?.error || 'Error al actualizar usuario', 'error');
       }
     } else {
       if (!password || password.trim().length < 6) {
@@ -735,12 +778,12 @@ const App = {
       }
       payload.password = password.trim();
       const res = DB.addUserByAdmin(payload);
-      if (res) {
+      if (res?.user) {
         App.showNotification(`🎉 ¡Usuario "${username}" creado exitosamente!`, 'success');
         document.getElementById('userFormModalOverlay')?.remove();
         App.renderUsers(document.getElementById('users-view'));
       } else {
-        App.showNotification('Error al crear usuario. Compruebe que el nombre de usuario no esté duplicado.', 'error');
+        App.showNotification(res?.error || 'No se pudo crear el usuario', 'error');
       }
     }
     if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Usuario'; }
@@ -999,12 +1042,10 @@ const App = {
           </div>
           <div class="card-body">
             <div class="form-group">
-              <label>URL o imagen del QR para pagos</label>
-              <input type="text" id="qrCodeUrl" class="form-control" placeholder="https://... o data:image/..." value="${qrValue}">
-            </div>
-            <div class="form-group">
-              <label for="qrCodeFile">Subir imagen desde el equipo</label>
-              <input type="file" id="qrCodeFile" class="form-control" accept="image/*" onchange="App.handleQRCodeUpload(event)">
+              <label for="qrCodeFile">Seleccione la imagen del QR desde su equipo <span class="text-muted">(obligatorio)</span></label>
+              <input type="file" id="qrCodeFile" class="form-control" accept="image/png,image/jpeg,image/webp" onchange="App.handleQRCodeUpload(event)">
+              <small class="form-text text-muted">Formatos permitidos: PNG, JPG o WEBP. La imagen se guarda en la base de datos, no solo en este navegador.</small>
+              <input type="hidden" id="qrCodeUrl" value="${this.escapeHtml(qrValue)}">
             </div>
             <div id="qrPreview" style="margin:20px 0;text-align:center;">
               ${qrValue ? '<img src="' + qrValue + '" style="max-width:200px;border-radius:8px;border:2px solid #00d4ff;" alt="QR Preview">' : '<div style="color:#64748b;padding:40px;background:#0f172a;border-radius:8px;">Vista previa del QR</div>'}
@@ -1019,7 +1060,9 @@ const App = {
           </div>
           <div class="card-body">
             <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-              Personalice los dibujos de la bienvenida. Deje en blanco para usar los iconos SVG profesionales incluidos.
+              Seleccione la imagen de cada icono desde su equipo. Se optimiza a 64×64 px y se guarda en la base de datos;
+              <strong>no se aceptan URL externas</strong>. Deje un icono sin imagen para usar el SVG profesional incluido.
+              Los iconos cargados antes por URL o emoji se conservan hasta que los reemplace.
             </p>
             <div id="portalIconsEditor" class="form-row-3"></div>
             <button class="btn btn-primary" onclick="App.savePortalIcons()">💾 Guardar iconos del portal</button>
@@ -1031,6 +1074,12 @@ const App = {
     this.loadPortalIcons();
   },
 
+  PORTAL_ICON_LABELS: {
+    camaras: 'Cámaras', ac: 'Aire Acondicionado', alarma: 'Alarmas',
+    cerca: 'Cerca Eléctrica', video: 'Video Portero', electricidad: 'Electricidad',
+    cableado: 'Cableado', redes: 'Redes'
+  },
+
   async loadPortalIcons() {
     try {
       const value = await DB.getSetting('portal_icons', {});
@@ -1040,32 +1089,113 @@ const App = {
     }
     const editor = document.getElementById('portalIconsEditor');
     if (!editor) return;
-    const services = [
-      ['camaras', 'Cámaras'], ['ac', 'Aire Acondicionado'], ['alarma', 'Alarmas'],
-      ['cerca', 'Cerca Eléctrica'], ['video', 'Video Portero'], ['electricidad', 'Electricidad'],
-      ['cableado', 'Cableado'], ['redes', 'Redes']
-    ];
-    editor.innerHTML = services.map(([key, label]) => `
+    editor.innerHTML = Object.entries(this.PORTAL_ICON_LABELS).map(([key, label]) => `
       <div class="form-group">
         <label>${label}</label>
-        <input type="text" class="form-control" id="portalIcon_${key}"
-          placeholder="URL o emoji (dejar vacío = SVG)"
-          value="${this.escapeHtml(App.portalIcons[key] || '')}">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div id="portalIconPreview_${key}" style="width:44px;height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;">
+            ${this.renderPortalIconPreview(App.portalIcons[key])}
+          </div>
+          <div style="flex:1;min-width:0;">
+            <input type="file" class="form-control" id="portalIconFile_${key}"
+              accept="image/png,image/jpeg,image/webp"
+              onchange="App.onPortalIconSelected(event, '${key}')">
+            <small class="form-text text-muted">PNG, JPG o WEBP · máx. 8 MB · se guarda en BD</small>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="App.removePortalIcon('${key}')" title="Quitar imagen y usar SVG original">✕</button>
+        </div>
       </div>
     `).join('');
   },
 
+  renderPortalIconPreview(value) {
+    const src = String(value || '');
+    if (/^data:image\/(png|jpeg|webp);base64,/i.test(src) || /^https?:\/\//i.test(src)) {
+      return `<img src="${this.escapeHtml(src)}" alt="" style="width:32px;height:32px;object-fit:contain;">`;
+    }
+    if (src) return `<span style="font-size:26px;line-height:1;">${this.escapeHtml(src)}</span>`;
+    return '<span style="font-size:11px;color:var(--gray-500);">SVG</span>';
+  },
+
+  updatePortalIconPreview(key, value) {
+    const preview = document.getElementById('portalIconPreview_' + key);
+    if (preview) preview.innerHTML = this.renderPortalIconPreview(value);
+  },
+
+  // Convierte el archivo elegido en un PNG pequeño listo para guardar en BD.
+  resizePortalIcon(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('La imagen seleccionada no es válida'));
+        img.onload = () => {
+          try {
+            const size = 64;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            const scale = Math.min(size / img.width, size / img.height);
+            const w = img.width * scale;
+            const h = img.height * scale;
+            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+            resolve(canvas.toDataURL('image/png'));
+          } catch (err) {
+            reject(new Error('No se pudo procesar la imagen'));
+          }
+        };
+        img.src = String(reader.result || '');
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+  async onPortalIconSelected(event, key) {
+    const input = event.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      App.showNotification('Seleccione una imagen PNG, JPG o WEBP', 'warning');
+      input.value = '';
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      App.showNotification('La imagen del icono no debe superar 8 MB', 'warning');
+      input.value = '';
+      return;
+    }
+    try {
+      const dataUrl = await this.resizePortalIcon(file);
+      App.portalIcons[key] = dataUrl;
+      this.updatePortalIconPreview(key, dataUrl);
+      App.showNotification(`Icono de ${this.PORTAL_ICON_LABELS[key] || key} listo. Presione «Guardar iconos del portal».`, 'success');
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudo procesar la imagen', 'error');
+    }
+    input.value = '';
+  },
+
+  removePortalIcon(key) {
+    delete App.portalIcons[key];
+    this.updatePortalIconPreview(key, '');
+    App.showNotification(`Icono de ${this.PORTAL_ICON_LABELS[key] || key} restaurado al SVG original. No olvide guardar.`, 'info');
+  },
+
   async savePortalIcons() {
-    const keys = ['camaras', 'ac', 'alarma', 'cerca', 'video', 'electricidad', 'cableado', 'redes'];
     const icons = {};
-    keys.forEach(key => {
-      const value = document.getElementById('portalIcon_' + key)?.value.trim();
+    Object.keys(this.PORTAL_ICON_LABELS).forEach(key => {
+      const value = App.portalIcons[key];
       if (value) icons[key] = value;
     });
     try {
-      await DB.saveSetting('portal_icons', icons);
+      const result = await DB.saveSetting('portal_icons', icons);
+      if (!result || result.error) throw new Error(result?.error || 'El servidor no confirmó el guardado');
       App.portalIcons = icons;
-      App.showNotification('Iconos del portal actualizados', 'success');
+      if (typeof ClientPortal !== 'undefined') ClientPortal.portalIcons = icons;
+      App.showNotification('Iconos del portal guardados en la base de datos', 'success');
     } catch (err) {
       App.showNotification(err.message || 'No se pudieron guardar los iconos', 'error');
     }
@@ -1073,8 +1203,10 @@ const App = {
 
   async resetPortalIcons() {
     try {
-      await DB.saveSetting('portal_icons', {});
+      const result = await DB.saveSetting('portal_icons', {});
+      if (!result || result.error) throw new Error(result?.error || 'No se pudo restaurar');
       App.portalIcons = {};
+      if (typeof ClientPortal !== 'undefined') ClientPortal.portalIcons = {};
       this.loadPortalIcons();
       App.showNotification('Iconos originales restaurados', 'info');
     } catch (err) {
@@ -1085,39 +1217,69 @@ const App = {
   handleQRCodeUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      App.showNotification('Seleccione un archivo de imagen válido', 'warning');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      App.showNotification('Seleccione una imagen PNG, JPG o WEBP', 'warning');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      App.showNotification('La imagen del QR no debe superar 8 MB', 'warning');
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const result = String(reader.result || '');
-      localStorage.setItem('sh_qr_code_url', result);
       const input = document.getElementById('qrCodeUrl');
       if (input) input.value = result;
-      App.showNotification('QR cargado correctamente', 'success');
-      setTimeout(() => App.renderSettings(document.getElementById('settings-view')), 300);
+      // Se guarda de inmediato en la BD; no basta con localStorage.
+      await App.updateQRCode();
     };
     reader.readAsDataURL(file);
   },
 
-  updateQRCode() {
-    const qrUrl = document.getElementById('qrCodeUrl')?.value.trim();
-    if (!qrUrl) {
-      App.showNotification('Ingrese una URL o imagen válida para el QR', 'warning');
-      return;
+  async updateQRCode() {
+    const qrValue = document.getElementById('qrCodeUrl')?.value.trim();
+    if (!qrValue || !/^data:image\/(png|jpeg|webp);base64,/i.test(qrValue)) {
+      App.showNotification('Seleccione una imagen de QR desde su equipo antes de guardar', 'warning');
+      return false;
     }
-    localStorage.setItem('sh_qr_code_url', qrUrl);
-    App.showNotification('✅ QR de cobranzas actualizado correctamente', 'success');
-    setTimeout(() => {
-      const settingsView = document.getElementById('settings-view');
-      if (settingsView) App.renderSettings(settingsView);
-    }, 250);
+    try {
+      const result = await DB.saveSetting('payment_qr', qrValue);
+      if (!result || result.error) {
+        App.showNotification(result?.error || 'No se pudo guardar el QR en la base de datos', 'error');
+        return false;
+      }
+      localStorage.setItem('sh_qr_code_url', qrValue);
+      App._qrCode = qrValue;
+      document.getElementById('qrPreview').innerHTML =
+        `<img src="${qrValue}" style="max-width:200px;border-radius:8px;border:2px solid #00d4ff;" alt="QR Preview">`;
+      App.showNotification('✅ QR de cobranzas guardado en la base de datos', 'success');
+      return true;
+    } catch (err) {
+      App.showNotification('No se pudo guardar el QR: ' + (err.message || 'error de conexión'), 'error');
+      return false;
+    }
   },
 
   getQRCode() {
-    return localStorage.getItem('sh_qr_code_url') || '';
+    return App._qrCode || localStorage.getItem('sh_qr_code_url') || '';
+  },
+
+  // Carga configuración persistente desde PostgreSQL al iniciar sesión.
+  loadSystemSettings() {
+    try {
+      const qr = DB.getSetting('payment_qr', '');
+      if (qr) {
+        App._qrCode = qr;
+        localStorage.setItem('sh_qr_code_url', qr);
+      }
+      const logo = DB.getSetting('company_logo', '');
+      if (logo) {
+        localStorage.setItem('sh_logo', logo);
+      }
+    } catch (err) {
+      console.warn('No se pudo cargar configuración persistente:', err.message);
+    }
   },
 
   saveProfile() {
@@ -1127,11 +1289,28 @@ const App = {
     const email = document.getElementById('setEmail')?.value.trim();
     const phone = document.getElementById('setPhone')?.value.trim();
 
-    const res = DB.updateUser(user.id, { name, email, phone });
-    if (res) {
-      Auth.setCurrentUser(res);
-      Auth.updateUserUI(res);
-      App.showNotification('Perfil actualizado', 'success');
+    const res = DB.updateOwnProfile({ name, email, phone });
+    if (res?.user) {
+      Auth.setCurrentUser(res.user);
+      Auth.updateUserUI(res.user);
+      if (res.needsVerification) {
+        let msg = 'Perfil actualizado. El correo cambió: verifique la nueva dirección antes de volver a ingresar.';
+        if (res.devToken) {
+          const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+          msg += ' Modo desarrollo: ' + base + '/auth/verify-email?token=' + encodeURIComponent(res.devToken);
+        }
+        Auth.clearCurrentUser();
+        DB._setToken(null);
+        Auth.showLogin();
+        document.getElementById('loginPage').style.display = 'flex';
+        document.getElementById('adminPortal').style.display = 'none';
+        document.getElementById('clientPortal').style.display = 'none';
+        App.showNotification(msg, 'warning');
+      } else {
+        App.showNotification('Perfil actualizado', 'success');
+      }
+    } else {
+      App.showNotification(res?.error || 'No se pudo actualizar el perfil', 'error');
     }
   },
 

@@ -30,7 +30,8 @@ function subscribe(req, res) {
     user: {
       id: req.user?.id || null,
       role: String(req.user?.role || '').toLowerCase(),
-      username: req.user?.username || ''
+      username: req.user?.username || '',
+      clientId: req.user?.clientId || null
     },
     alive: true
   };
@@ -83,6 +84,11 @@ function publish(eventName, payload = {}, filter = {}) {
   clients.forEach(client => {
     if (roles && !roles.includes(client.user.role)) return;
     if (userIds && !userIds.includes(Number(client.user.id))) return;
+    // Un cliente NUNCA debe recibir eventos de otros clientes, aunque el
+    // publicador olvide pasar el filtro. Sin clientId explícito, se descarta.
+    if (client.user.role === 'cliente') {
+      if (!filter.clientIds || !filter.clientIds.some(id => Number(id) === Number(client.user.clientId))) return;
+    }
     deliver(client, eventName, message);
   });
 }

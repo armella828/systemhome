@@ -103,18 +103,28 @@ const DB = {
     return result;
   },
 
+  // El registro NO inicia sesión: la cuenta debe verificarse por correo.
+  // Se devuelve la respuesta completa para que la UI muestre errores reales.
+  registerUser(user) {
+    return this._request('POST', '/auth/register', user);
+  },
+
   addUser(user) {
-    const result = this._request('POST', '/auth/register', user);
-    if (result?.token) {
-      this._setToken(result.token);
-      localStorage.setItem('sh_current_user', JSON.stringify(result.user));
-    }
+    const result = this.registerUser(user);
     return result?.user || null;
   },
 
+  resendVerification(email) {
+    return this._request('POST', '/auth/resend-verification', { email });
+  },
+
   updateUser(id, data) {
-    const result = this._request('PUT', `/users/${id}`, data);
-    return result?.user || null;
+    // Se devuelve la respuesta completa para no ocultar errores del backend.
+    return this._request('PUT', `/users/${id}`, data);
+  },
+
+  updateOwnProfile(data) {
+    return this._request('PUT', '/me/profile', data);
   },
 
   deleteUser(id) {
@@ -122,8 +132,7 @@ const DB = {
   },
 
   addUserByAdmin(data) {
-    const result = this._request('POST', '/users', data);
-    return result?.user || null;
+    return this._request('POST', '/users', data);
   },
 
   isUsernameDuplicate(username, excludeId) {
@@ -274,20 +283,29 @@ const DB = {
     return result?.budget || null;
   },
 
-  async fetchBudgetPdf(id, download = true) {
+  async _fetchBudgetPdfBlob(id) {
     const token = this._getToken();
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
-    const resp = await fetch(`${this._baseUrl}/budgets/${id}/export?${download ? 'download=1' : 'download=0'}`, { headers });
+    const resp = await fetch(`${this._baseUrl}/budgets/${id}/export?download=1`, { headers });
     if (!resp.ok) {
       let detail = '';
       try { detail = (await resp.json()).error || ''; } catch (e) { /* cuerpo no JSON */ }
       throw new Error(detail || `No se pudo generar el PDF (HTTP ${resp.status})`);
     }
     const blob = await resp.blob();
+    if (blob.size < 100) throw new Error('El PDF generado está vacío; no se compartirá nada');
+    const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+    if (signature[0] !== 0x25 || signature[1] !== 0x50 || signature[2] !== 0x44 || signature[3] !== 0x46) {
+      throw new Error('El servidor no devolvió un PDF válido');
+    }
     const disposition = resp.headers.get('Content-Disposition') || '';
     const match = disposition.match(/filename="?([^";]+)"?/i);
     const filename = match ? match[1] : `cotizacion-${id}.pdf`;
+    return { blob, filename };
+  },
+
+  _downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -297,28 +315,32 @@ const DB = {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+  },
+
+  async fetchBudgetPdf(id, download = true) {
+    const { blob, filename } = await this._fetchBudgetPdfBlob(id);
+    if (download) this._downloadBlob(blob, filename);
     return { filename, bytes: blob.size };
   },
 
-  exportBudgetPdf(id) {
-    return this.fetchBudgetPdf(id, false);
+  // Devuelve un File real para Web Share API. Nunca simula un envío.
+  async getBudgetPdfFile(id) {
+    if (typeof File === 'undefined') {
+      throw new Error('Este navegador no permite adjuntar archivos desde la web');
+    }
+    const { blob, filename } = await this._fetchBudgetPdfBlob(id);
+    return new File([blob], filename, { type: 'application/pdf', lastModified: Date.now() });
   },
 
-  downloadBudgetPdf(id, number = '') {
-    // Enlace directo dentro del clic del usuario: evita que el navegador bloquee
-    // descargas programáticas después de un fetch asíncrono.
-    const token = this._getToken();
-    const filename = `cotizacion-${number || id}.pdf`;
-    const url = `${this._baseUrl}/budgets/${id}/export?download=1&token=${encodeURIComponent(token || '')}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => a.remove(), 1500);
-    return Promise.resolve({ filename });
+  exportBudgetPdf(id) {
+    return this.fetchBudgetPdf(id, true);
+  },
+
+  async downloadBudgetPdf(id, number = '') {
+    // Descarga real: se espera a que el servidor devuelva un PDF válido antes
+    // de mostrar éxito. No se usa token en la URL ni se finge una descarga.
+    const result = await this.fetchBudgetPdf(id, true);
+    return { filename: result.filename || `cotizacion-${number || id}.pdf`, bytes: result.bytes };
   },
 
   emailBudget(id, payload) {
@@ -405,6 +427,16 @@ const DB = {
 
   getInventory() {
     const result = this._request('GET', '/inventory');
+    if (result?.error) {
+      // Antes un 401 se convertía silenciosamente en [] y el admin creía
+      // que no había productos. Avisamos para no confundir error con vacío.
+      const msg = result.error === 'No autorizado'
+        ? 'Su sesión expiró. Inicie sesión nuevamente para ver el inventario.'
+        : `No se pudo cargar el inventario: ${result.error}`;
+      if (window.App?.showNotification) window.App.showNotification(msg, 'error');
+      console.error('getInventory:', result.error);
+      return [];
+    }
     return result?.inventory || [];
   },
 
@@ -428,8 +460,8 @@ const DB = {
   },
 
   uploadInventoryImage(id, filename, base64Data) {
-    const result = this._request('POST', `/inventory/${id}/image`, { filename, data: base64Data });
-    return result?.inventoryItem || null;
+    // Respuesta completa para detectar errores reales del servidor.
+    return this._request('POST', `/inventory/${id}/image`, { filename, data: base64Data });
   },
 
   getInventoryMovements() {

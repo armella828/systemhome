@@ -51,6 +51,8 @@ const ClientPortal = {
     getIcon(key) {
         const custom = this.portalIcons[key];
         if (!custom) return SH_PORTAL_DEFAULT_ICONS[key] || SH_PORTAL_DEFAULT_ICONS.camaras;
+        // Los iconos nuevos se seleccionan como archivo y se guardan como data:image.
+        // Se conservan http(s) y emoji solo por compatibilidad con valores anteriores.
         if (/^data:image|^https?:\/\//i.test(custom)) {
             return `<img src="${this.escapeHtml(custom)}" alt="" style="width:34px;height:34px;object-fit:contain;">`;
         }

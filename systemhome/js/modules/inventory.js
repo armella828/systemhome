@@ -226,17 +226,13 @@ const InventoryModule = {
 
               <!-- GESTIÓN DE FOTO DEL PRODUCTO -->
               <div class="form-group" style="background:#f8fafc;padding:1.2rem;border-radius:10px;border:1px solid #e2e8f0;margin-top:1rem;">
-                <label style="font-weight:700;display:block;margin-bottom:0.6rem;color:#1e3a8a;">📸 Imagen del Producto (Subir archivo local o Ingresar URL)</label>
+                <label style="font-weight:700;display:block;margin-bottom:0.6rem;color:#1e3a8a;">📸 Imagen del Producto</label>
                 
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label style="font-size:0.85rem;color:#475569;font-weight:600;">Opción 1: Subir imagen desde mi equipo</label>
-                    <input type="file" class="form-control" id="invImageFile" accept="image/*" onchange="InventoryModule.onFileSelected(event)">
-                  </div>
-                  <div class="form-group flex-1">
-                    <label style="font-size:0.85rem;color:#475569;font-weight:600;">Opción 2: Pegar URL externa de imagen</label>
-                    <input type="url" class="form-control" id="invImageUrl" placeholder="https://..." oninput="InventoryModule.onUrlInput(this.value)">
-                  </div>
+                <div class="form-group">
+                  <label style="font-size:0.85rem;color:#475569;font-weight:600;" for="invImageFile">Seleccione la imagen desde su equipo</label>
+                  <input type="file" class="form-control" id="invImageFile" accept="image/png,image/jpeg,image/webp" onchange="InventoryModule.onFileSelected(event)">
+                  <small class="text-muted">La imagen se guarda en la base de datos y se muestra en el portal del cliente. No se admiten URLs externas.</small>
+                  <input type="hidden" id="invImageUrl">
                 </div>
 
                 <!-- Preview Box -->
@@ -422,6 +418,16 @@ const InventoryModule = {
   onFileSelected(event) {
     const file = event.target.files[0];
     if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      App.showNotification('Seleccione una imagen PNG, JPG o WEBP', 'warning');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      App.showNotification('La imagen no debe superar 8 MB', 'warning');
+      event.target.value = '';
+      return;
+    }
 
     this.tempImageFilename = file.name;
     const reader = new FileReader();
@@ -481,7 +487,7 @@ const InventoryModule = {
     if (btnRemove) btnRemove.style.display = 'none';
   },
 
-  save(e) {
+  async save(e) {
     e.preventDefault();
     const idVal = document.getElementById('inventoryId')?.value;
     const id = idVal ? Number(idVal) : null;
@@ -521,9 +527,18 @@ const InventoryModule = {
     }
 
     if (saved && saved.id) {
-      // If a local image file was uploaded, upload base64
+      // La imagen seleccionada se persiste en la BD antes de mostrar éxito.
       if (this.tempImageBase64 && this.tempImageFilename) {
-        DB.uploadInventoryImage(saved.id, this.tempImageFilename, this.tempImageBase64);
+        try {
+          const uploaded = await DB.uploadInventoryImage(saved.id, this.tempImageFilename, this.tempImageBase64);
+          if (!uploaded?.inventoryItem || uploaded.error) {
+            throw new Error(uploaded?.error || 'No se pudo guardar la imagen del producto');
+          }
+        } catch (err) {
+          App.showNotification('El producto se guardó, pero la imagen no: ' + (err.message || 'error de conexión'), 'error');
+          if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Producto'; }
+          return false;
+        }
       }
 
       App.showNotification(`🎉 ¡Producto "${saved.name}" guardado exitosamente!`, 'success');

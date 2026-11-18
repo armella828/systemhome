@@ -3,6 +3,13 @@ const fs = require('fs');
 require('dotenv').config();
 
 const DATABASE_URL = process.env.DATABASE_URL;
+
+// En producción SQLite sería efímero en Render: fallar rápido evita que la
+// aplicación "arranque bien" con una base nueva que luego desaparece.
+if (process.env.NODE_ENV === 'production' && !DATABASE_URL) {
+  throw new Error('DATABASE_URL es obligatoria en producción. Sin ella se usaría SQLite efímero y los datos se perderían al reiniciar.');
+}
+
 const isPostgres = !!DATABASE_URL;
 
 let db, run, get, all;
@@ -271,6 +278,14 @@ function initSchema() {
       key TEXT PRIMARY KEY,
       value TEXT,
       updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+      id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS work_orders (
       id ${isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
@@ -560,6 +575,10 @@ function initSchema() {
     addColumnIfNotExists('budget_items', 'discount_percent', 'REAL NOT NULL DEFAULT 0');
     addColumnIfNotExists('budget_items', 'notes', 'TEXT');
     addColumnIfNotExists('technicians', 'user_id', 'INTEGER REFERENCES users(id)');
+    // Vinculación real usuario ↔ cliente y estado de verificación de correo.
+    addColumnIfNotExists('users', 'client_id', 'INTEGER REFERENCES clients(id)');
+    addColumnIfNotExists('users', 'email_verified', 'INTEGER NOT NULL DEFAULT 0');
+    addColumnIfNotExists('users', 'token_version', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 // ============================================================
@@ -567,6 +586,13 @@ function initSchema() {
 // ============================================================
 function seedData() {
   const now = new Date().toISOString();
+
+  // Los datos demo solo se crean cuando la tabla está realmente vacía.
+  // En producción hay que habilitarlos explícitamente con SEED_DEMO_DATA=1.
+  // NUNCA se usa DELETE/TRUNCATE aquí: eso destruía inventario real al
+  // reiniciar el servicio si el administrador tenía menos de 10 productos.
+  const seedEnabled = process.env.SEED_DEMO_DATA === '1' ||
+    (process.env.NODE_ENV !== 'production' && process.env.SEED_DEMO_DATA !== '0');
 
   // Role cleanup
   const validRoleNames = ['admin', 'vendedor', 'tecnico', 'cliente'];
@@ -645,8 +671,24 @@ function seedData() {
     }
   }
 
+  // Compatibilidad: usuarios que ya existían antes de la verificación de correo
+  // se consideran verificados solo si tienen una ficha de cliente creada por
+  // ellos o si son usuarios internos. Los registros nuevos NO se marcan aquí.
+  try {
+    run(`UPDATE users SET client_id = (
+      SELECT c.id FROM clients c WHERE c.created_by_user_id = users.id ORDER BY c.id DESC LIMIT 1
+    ) WHERE client_id IS NULL`);
+    run(`UPDATE users SET email_verified = 1
+      WHERE email_verified = 0 AND (
+        role_id IN (SELECT id FROM roles WHERE name <> 'cliente')
+        OR id IN (SELECT created_by_user_id FROM clients WHERE created_by_user_id IS NOT NULL)
+      )`);
+  } catch (e) {
+    console.error('No se pudo migrar usuarios legacy:', e.message);
+  }
+
   const userCount = Number(get('SELECT COUNT(*) as count FROM users').count);
-  if (userCount === 0) {
+  if (seedEnabled && userCount === 0) {
     const bcrypt = require('bcryptjs');
     const q = isPostgres ? '$1' : '?';
     run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,${q},${q})`,
@@ -660,7 +702,7 @@ function seedData() {
   }
 
   const serviceCount = Number(get('SELECT COUNT(*) as count FROM services').count);
-  if (serviceCount === 0) {
+  if (seedEnabled && serviceCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const services = [
       ['Camaras de Vigilancia', 'Instalacion y mantenimiento de sistemas de videovigilancia HD y 4K'],
@@ -679,7 +721,7 @@ function seedData() {
   }
 
   const techCount = Number(get('SELECT COUNT(*) as count FROM technicians').count);
-  if (techCount === 0) {
+  if (seedEnabled && techCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const techs = [
       ['Carlos Mendoza', 'Camaras de Vigilancia y Alarmas', '0981 123 456', 'carlos@systemhome.com'],
@@ -693,8 +735,7 @@ function seedData() {
   }
 
   const invCount = Number(get('SELECT COUNT(*) as count FROM inventory_items').count);
-  if (invCount < 10) {
-    run('DELETE FROM inventory_items');
+  if (seedEnabled && invCount === 0) {
     const q = isPostgres ? '$1' : '?';
     const items = [
       ['Camaras Domo IP 4MP IR 30m', 'camaras', 'Hikvision', 'DS-2CD1143G0-I', 15, 4, 580000, 'Camara antivandalica domo IP 4MP', '4 Megapixeles, PoE, Vision Nocturna 30m, IP67', 'Mas vendido', 'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=600&auto=format&fit=crop&q=80'],
@@ -722,7 +763,7 @@ function seedData() {
   }
 
   const clientCount = Number(get('SELECT COUNT(*) as count FROM clients').count);
-  if (clientCount === 0) {
+  if (seedEnabled && clientCount === 0) {
     const adminUserId = get("SELECT id FROM users WHERE username = 'admin'").id;
     const q = isPostgres ? '$1' : '?';
     const insertResult = run(`INSERT INTO clients (name, ruc, address, phone, email, client_type, active, created_at, updated_at, created_by_user_id) VALUES (${q},${q},${q},${q},${q},'persona',1,${q},${q},${q})`,

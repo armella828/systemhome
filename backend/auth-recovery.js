@@ -94,7 +94,8 @@ async function resetPassword(db, token, newPassword, bcrypt) {
   }
   const now = new Date().toISOString();
   const hash = bcrypt.hashSync(newPassword, 12);
-  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(hash, now, row.user_id);
+  // Incrementar token_version invalida todas las sesiones anteriores del usuario.
+  db.prepare('UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1, updated_at = ? WHERE id = ?').run(hash, now, row.user_id);
   db.prepare('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?').run(now, row.id);
   return { ok: true };
 }

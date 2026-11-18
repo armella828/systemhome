@@ -88,33 +88,62 @@
 
                     <form id="registerForm" onsubmit="return Auth.handleRegister(event)">
                         <div class="form-group">
-                            <label for="regName">Nombre Completo / Razón Social</label>
-                            <input type="text" id="regName" class="form-control" placeholder="Ej: María Gómez" required>
+                            <label for="regName">Nombre Completo / Razón Social *</label>
+                            <input type="text" id="regName" class="form-control" placeholder="Ej: María Gómez o MI EMPRESA SRL" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="regClientType">Tipo de Cliente</label>
+                                <select id="regClientType" class="form-control">
+                                    <option value="persona">Persona física</option>
+                                    <option value="empresa">Empresa / Razón social</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="regDocumentId">CI / RUC (opcional)</label>
+                                <input type="text" id="regDocumentId" class="form-control" placeholder="Ej: 1234567-8 o 80012345-6">
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label for="regEmail">Correo Electrónico</label>
+                            <label for="regEmail">Correo Electrónico * <small>(lo usaremos para verificar su cuenta)</small></label>
                             <input type="email" id="regEmail" class="form-control" placeholder="cliente@ejemplo.com" required>
                         </div>
-                        <div class="form-group">
-                            <label for="regPhone">Teléfono / WhatsApp</label>
-                            <input type="text" id="regPhone" class="form-control" placeholder="0981 123 456">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="regPhone">Teléfono / WhatsApp</label>
+                                <input type="text" id="regPhone" class="form-control" placeholder="0981 123 456">
+                            </div>
+                            <div class="form-group">
+                                <label for="regCity">Ciudad</label>
+                                <input type="text" id="regCity" class="form-control" placeholder="Ej: Asunción">
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label for="regUsername">Nombre de Usuario</label>
+                            <label for="regAddress">Dirección</label>
+                            <input type="text" id="regAddress" class="form-control" placeholder="Calle, número y barrio">
+                        </div>
+                        <div class="form-group">
+                            <label for="regUsername">Nombre de Usuario * <small>(4 a 20 caracteres)</small></label>
                             <input type="text" id="regUsername" class="form-control"
-                                placeholder="Elija un nombre de usuario único" required autocomplete="off">
+                                placeholder="Elija un nombre de usuario único" required minlength="4" maxlength="20" autocomplete="off" pattern="[A-Za-z0-9._-]{4,20}">
                         </div>
-                        <div class="form-group">
-                            <label for="regPassword">Contraseña</label>
-                            <input type="password" id="regPassword" class="form-control"
-                                placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="new-password">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="regPassword">Contraseña * <small>(mínimo 8 caracteres)</small></label>
+                                <input type="password" id="regPassword" class="form-control"
+                                    placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+                            </div>
+                            <div class="form-group">
+                                <label for="regConfirmPassword">Confirmar Contraseña *</label>
+                                <input type="password" id="regConfirmPassword" class="form-control"
+                                    placeholder="Repita la contraseña" required minlength="8" autocomplete="new-password">
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="regConfirmPassword">Confirmar Contraseña</label>
-                            <input type="password" id="regConfirmPassword" class="form-control"
-                                placeholder="Repita la contraseña" required autocomplete="new-password">
-                        </div>
+                        <p style="font-size:12px;color:#64748b;margin:4px 0 12px;">
+                            Su cuenta quedará pendiente de verificación. Le enviaremos un correo real con un enlace; mientras tanto no podrá ingresar.
+                        </p>
                         <div id="registerError" class="login-error" style="display:none;"></div>
+                        <div id="registerSuccess" class="login-error" style="display:none;color:#065f46;background:#ecfdf5;border-color:#a7f3d0;"></div>
                         <button type="submit" class="login-btn login-btn-client" id="registerSubmitBtn"
                             style="width:100%;justify-content:center;border:none;cursor:pointer;">
                             <span class="login-btn-text">

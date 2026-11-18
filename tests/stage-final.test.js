@@ -83,7 +83,12 @@ async function main() {
   assert(iconsPut.status === 200, `settings PUT HTTP ${iconsPut.status}`);
   const iconsAfter = await req('GET', '/api/settings/portal_icons');
   assert(iconsAfter.data.value?.camaras === '🔒', 'portal_icons no persiste');
-  console.log('PASS  iconos del portal persistentes');
+  const iconPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const iconsPutImage = await req('PUT', '/api/settings/portal_icons', { value: { camaras: '🔒', alarmas: iconPng } });
+  assert(iconsPutImage.status === 200, `settings PUT PNG HTTP ${iconsPutImage.status}`);
+  const iconsAfterImage = await req('GET', '/api/settings/portal_icons');
+  assert(iconsAfterImage.data.value?.alarmas === iconPng, 'icono PNG del portal no persiste en base de datos');
+  console.log('PASS  iconos del portal persistentes (emoji e imagen en BD)');
 
   const logoBefore = await req('GET', '/api/settings/company_logo');
   previousLogo = logoBefore.data.value;
