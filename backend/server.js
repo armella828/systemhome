@@ -1998,7 +1998,7 @@ app.post('/api/budgets/:id/email', authMiddleware, requireRole(['admin', 'vended
     return res.status(400).json({ error: 'Ingrese un correo electrónico válido para el destinatario' });
   }
   if (!mailer.isConfigured()) {
-    return res.status(503).json({ error: 'Correo SMTP no configurado. Configure SMTP_HOST, SMTP_USER y SMTP_PASS en Render.' });
+    return res.status(503).json({ error: 'Correo SMTP no configurado. Configure BREVO_API_KEY (recomendado) o SMTP_HOST, SMTP_USER y SMTP_PASS en Render.' });
   }
 
   try {
@@ -2012,6 +2012,9 @@ app.post('/api/budgets/:id/email', authMiddleware, requireRole(['admin', 'vended
       String(message || '')
     );
 
+    if (!result.sent) {
+      return res.status(502).json({ ok: false, sent: false, error: 'El correo no pudo enviarse: ' + (result.reason || 'error desconocido') });
+    }
     if (markSent) {
       const now = new Date().toISOString();
       db.prepare("UPDATE budgets SET status = 'enviado', sent_at = ?, sent_by_user_id = ?, updated_at = ? WHERE id = ?")

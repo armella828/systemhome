@@ -1,7 +1,13 @@
 /**
- * SYSTEMHOME - Módulo de correo electrónico real (SMTP)
- * Credenciales SOLO desde variables de entorno.
- * SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, MAIL_FROM, MAIL_FROM_NAME, APP_URL
+ * SYSTEMHOME - Módulo de correo electrónico real
+ * Credenciales SOLO desde variables de entorno. Nunca en el código.
+ *
+ * Proveedor preferido: Brevo por API HTTP (puerto 443). Funciona en Render Free,
+ * que bloquea el tráfico saliente SMTP en los puertos 25, 465 y 587.
+ *   BREVO_API_KEY, MAIL_FROM, MAIL_FROM_NAME, APP_URL
+ *
+ * Respaldo SMTP (planes de pago o servidores sin bloqueo de puertos):
+ *   SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS
  */
 const nodemailer = require('nodemailer');
 require('dotenv').config();
@@ -9,6 +15,8 @@ require('dotenv').config();
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
 const FROM_NAME = process.env.MAIL_FROM_NAME || 'SYSTEMHOME';
 const FROM = process.env.MAIL_FROM || process.env.SMTP_USER || '';
+const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
+const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
 let transporter = null;
 function getTransporter() {
@@ -24,12 +32,57 @@ function getTransporter() {
     auth: { user, pass },
     pool: true,
     maxConnections: 3,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
   });
   return transporter;
 }
 
 function isConfigured() {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return !!(BREVO_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS));
+}
+
+// Brevo espera direcciones como objetos { name, email }. Se aceptan tanto
+// "correo@ejemplo.com" como "Nombre <correo@ejemplo.com>".
+function parseAddress(value) {
+  const s = String(value == null ? '' : value).trim();
+  const m = s.match(/^(.*?)<([^>]+)>$/);
+  if (m) return { name: m[1].trim().replace(/^["']|["']$/g, ''), email: m[2].trim() };
+  return { email: s };
+}
+
+async function sendViaBrevo(to, subject, html, text, attachments = []) {
+  if (!FROM) return { sent: false, reason: 'MAIL_FROM_MISSING' };
+  const payload = {
+    sender: { name: FROM_NAME, email: FROM },
+    to: [parseAddress(to)],
+    subject,
+    htmlContent: html,
+    textContent: text || ''
+  };
+  if (attachments.length) {
+    payload.attachment = attachments.map(a => ({
+      name: a.filename,
+      content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : String(a.content || ''),
+      contentType: a.contentType || 'application/pdf'
+    }));
+  }
+  const resp = await fetch(BREVO_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'api-key': BREVO_API_KEY
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!resp.ok) {
+    const detail = (await resp.text()).slice(0, 240);
+    throw new Error('Brevo HTTP ' + resp.status + ': ' + detail);
+  }
+  return { sent: true };
 }
 
 function esc(s) {
@@ -70,9 +123,16 @@ function button(href, label) {
  * Envio generico. `attachments` es opcional y usa el formato de nodemailer.
  */
 async function sendMail(to, subject, html, text, attachments = []) {
+  if (BREVO_API_KEY) {
+    try {
+      return await sendViaBrevo(to, subject, html, text, attachments);
+    } catch (err) {
+      return { sent: false, reason: err.message };
+    }
+  }
   const t = getTransporter();
   if (!t) {
-    console.warn('SMTP no configurado: correo no enviado a', String(to).replace(/@.*/, '@***'));
+    console.warn('Correo no configurado: no enviado a', String(to).replace(/@.*/, '@***'));
     return { sent: false, reason: 'SMTP_NOT_CONFIGURED' };
   }
   await t.sendMail({
