@@ -51,6 +51,12 @@ function buildItems(count) {
   ok(login.status === 200, 'login admin para generar PDF');
   const token = login.data.token;
 
+  // El cliente de prueba se resuelve desde la BD activa: el ID 7 solo existe en staging.
+  const clientsRes = await api('GET', '/api/clients', undefined, token);
+  const clientsList = clientsRes.data?.clients || [];
+  const clientId = clientsList.find(c => c.active !== 0)?.id;
+  ok(!!clientId, 'cliente existente para las cotizaciones QA');
+
   const cases = [
     { count: 1, minPages: 1, label: '1 ítem' },
     { count: 20, minPages: 1, label: '20 ítems' },
@@ -61,7 +67,7 @@ function buildItems(count) {
     const items = buildItems(testCase.count);
     const total = items.reduce((sum, it) => sum + it.qty * it.price * (1 - it.discountPercent / 100), 0) + 150;
     const created = await api('POST', '/api/budgets', {
-      clientId: 7,
+      clientId,
       serviceType: 'camaras',
       description: 'Prueba automatizada de PDF profesional con descripción larga y múltiples líneas.',
       items,

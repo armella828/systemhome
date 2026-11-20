@@ -51,12 +51,25 @@ function pass(msg) { console.log('PASS  ' + msg); }
   assert(!/\/auth\/verify-email\?token=/.test(app), 'quedó un enlace de desarrollo que apunta a la API');
   pass('página de verificación y enlaces correctos');
 
-  for (const id of ['regName', 'regClientType', 'regDocumentId', 'regEmail', 'regPhone', 'regCity', 'regAddress', 'regUsername', 'regPassword', 'regConfirmPassword']) {
-    assert(index.includes('help-' + id), `falta ayuda específica para ${id}`);
-    assert(index.includes('class="register-help"'), 'falta el estilo de ayuda de registro');
+  for (const [id, label] of [
+    ['regName', 'Nombre completo'],
+    ['regClientType', 'Tipo de cliente'],
+    ['regDocumentId', 'CI / RUC'],
+    ['regEmail', 'Correo electrónico'],
+    ['regPhone', 'Teléfono / WhatsApp'],
+    ['regCity', 'Ciudad'],
+    ['regAddress', 'Dirección'],
+    ['regUsername', 'Nombre de usuario'],
+    ['regPassword', 'Contraseña'],
+    ['regConfirmPassword', 'Confirmar contraseña']
+  ]) {
+    assert(index.includes('for="' + id + '"'), `falta el campo ${id}`);
+    assert(index.includes(label), `falta la etiqueta "${label}"`);
   }
-  assert(index.includes('Paso 1: abra su correo') || app.includes('Paso 1: abra su correo'), 'falta el mensaje de pasos tras registrarse');
-  pass('ayuda por campo solo en el formulario de registro');
+  assert(!index.includes('Cómo llenarlo'), 'quedó texto de ayuda "Cómo llenarlo"');
+  assert(!index.includes('register-help'), 'quedaron ayudas extensas por campo');
+  assert(index.includes('Verificar mi correo'), 'falta la nota de verificación');
+  pass('etiquetas claras y directas en el formulario de registro');
 
   const health = await fetch(BASE + '/api/health').then(r => r.json()).catch(() => null);
   if (health) {

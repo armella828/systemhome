@@ -34,7 +34,7 @@ Las imágenes siguen guardándose dentro de la base de datos como `data:image/..
   - llama automáticamente a `GET /api/auth/verify-email?token=...`;
   - muestra **“Correo verificado correctamente”** y un enlace para iniciar sesión;
   - si el enlace venció o falla, ofrece un formulario para reenviar correo a través de `POST /api/auth/resend-verification`.
-- El formulario de registro ahora incluye una explicación concreta debajo de **cada campo**, solo en “Crear una cuenta”: qué escribir en nombre/razón social, tipo de cliente, CI/RUC, correo, WhatsApp, ciudad, dirección, usuario, contraseña y confirmación.
+- El formulario de registro usa etiquetas directas y claras —**Nombre completo / Razón social**, **Correo electrónico**, **Teléfono / WhatsApp**, **CI / RUC**, **Ciudad**, **Dirección**, **Nombre de usuario**, **Contraseña** y **Confirmar contraseña**— sin textos explicativos largos.
 - Después de crear la cuenta se muestran tres pasos numerados: abrir el correo, hacer clic en **Verificar mi correo** y volver a iniciar sesión.
 
 ---

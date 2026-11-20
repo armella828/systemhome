@@ -475,21 +475,24 @@ function getCompanyLogoBuffer() {
 function renderBudgetPdf(doc, budget, client) {
   const pageWidth = doc.page.width;
 
-  // Encabezado corporativo con logo (guardado en PostgreSQL o logo por defecto)
-  doc.rect(0, 0, pageWidth, 150).fill('#f8fafc');
+  // Encabezado corporativo: logo en la esquina, texto al costado, sin superposiciones.
+  doc.rect(0, 0, pageWidth, 104).fill('#f8fafc');
   const logoBuffer = getCompanyLogoBuffer();
   if (logoBuffer) {
     try {
-      doc.image(logoBuffer, (pageWidth - 96) / 2, 14, { fit: [96, 72], align: 'center' });
+      doc.save();
+      doc.roundedRect(40, 14, 84, 66, 4).fill('#ffffff');
+      doc.image(logoBuffer, 44, 18, { fit: [76, 58], align: 'center', valign: 'center' });
+      doc.restore();
     } catch (e) {
       console.error('PDF logo error:', e.message);
     }
   }
-  doc.fontSize(16).fillColor('#0b1f3a').text('SYSTEMHOME SECURITY', 40, 94, { align: 'center', width: pageWidth - 80 });
-  doc.fontSize(8.5).fillColor('#475569').text('Seguridad Electronica · Climatizacion · Redes & Telecomunicaciones', 40, 115, { align: 'center', width: pageWidth - 80 });
-  doc.fontSize(8).fillColor('#64748b').text('WhatsApp: +591 64595762 · Asuncion / Central', 40, 128, { align: 'center', width: pageWidth - 80 });
-  doc.moveTo(40, 147).lineTo(pageWidth - 40, 147).strokeColor('#0e7490').lineWidth(2).stroke();
-  doc.y = 166;
+  doc.fontSize(16).fillColor('#0b1f3a').text('SYSTEMHOME SECURITY', 138, 24, { width: pageWidth - 178, align: 'left' });
+  doc.fontSize(8.5).fillColor('#475569').text('Seguridad Electronica · Climatizacion · Redes & Telecomunicaciones', 138, 50, { width: pageWidth - 178, align: 'left' });
+  doc.fontSize(8).fillColor('#64748b').text('WhatsApp: +591 64595762 · Asuncion / Central', 138, 68, { width: pageWidth - 178, align: 'left' });
+  doc.moveTo(40, 100).lineTo(pageWidth - 40, 100).strokeColor('#0e7490').lineWidth(2).stroke();
+  doc.y = 116;
 
   doc.fontSize(15).fillColor('#0b1f3a').text(`PRESUPUESTO Oficial: ${budget.number}`);
   doc.fontSize(9).fillColor('#475569');
@@ -602,18 +605,36 @@ function renderBudgetPdfProfessional(doc, budget, client) {
   const logoBuffer = getCompanyLogoBuffer();
 
   function drawHeader() {
-    doc.rect(0, 0, pageW, 112).fill('#f8fafc');
+    const bandH = 104;
+    const logoW = 84;
+    const logoH = 66;
+    doc.rect(0, 0, pageW, bandH).fill('#f8fafc');
+
+    // Logo en la esquina superior izquierda, dentro de su propio recuadro.
+    // El texto va a su derecha: nunca se superpone con la imagen.
     if (logoBuffer) {
-      try { doc.image(logoBuffer, (pageW - 76) / 2, 10, { fit: [76, 52], align: 'center' }); }
-      catch (e) { console.error('PDF logo error:', e.message); }
+      try {
+        doc.save();
+        doc.roundedRect(left, 14, logoW, logoH, 4).fill('#ffffff');
+        doc.image(logoBuffer, left + 4, 18, {
+          fit: [logoW - 8, logoH - 8], align: 'center', valign: 'center'
+        });
+        doc.restore();
+      } catch (e) { console.error('PDF logo error:', e.message); }
     }
-    doc.font('Helvetica-Bold').fontSize(14).fillColor('#0b1f3a')
-      .text('SYSTEMHOME SECURITY', left, 62, { width: contentW, align: 'center' });
-    doc.font('Helvetica').fontSize(8).fillColor('#475569')
-      .text('Seguridad Electrónica · Climatización · Redes y Telecomunicaciones', left, 82, { width: contentW, align: 'center' });
-    doc.moveTo(left, 108).lineTo(right, 108).strokeColor('#0e7490').lineWidth(2).stroke();
+
+    const textX = left + logoW + 14;
+    const textW = right - textX;
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#0b1f3a')
+      .text('SYSTEMHOME SECURITY', textX, 24, { width: textW, align: 'left' });
+    doc.font('Helvetica').fontSize(8.5).fillColor('#475569')
+      .text('Seguridad Electrónica · Climatización · Redes y Telecomunicaciones', textX, 50, { width: textW, align: 'left' });
+    doc.fontSize(8).fillColor('#64748b')
+      .text('WhatsApp: +591 64595762 · Asunción, Paraguay', textX, 68, { width: textW, align: 'left' });
+
+    doc.moveTo(left, bandH - 4).lineTo(right, bandH - 4).strokeColor('#0e7490').lineWidth(2).stroke();
     doc.fillColor('#0b1f3a').font('Helvetica');
-    doc.y = 124;
+    doc.y = bandH + 12;
   }
 
   function drawFooter(pageNumber) {

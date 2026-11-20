@@ -695,13 +695,13 @@ function seedData() {
   if (seedEnabled && userCount === 0) {
     const bcrypt = require('bcryptjs');
     const q = isPostgres ? '$1' : '?';
-    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,${q},${q})`,
+    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, email_verified, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,1,${q},${q})`,
       ['admin', bcrypt.hashSync('admin123', 10), 'Administrador General', 'admin@systemhome.com', '0981 000 000', 'admin', now, now]);
-    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,${q},${q})`,
+    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, email_verified, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,1,${q},${q})`,
       ['vendedor', bcrypt.hashSync('vendedor123', 10), 'Vendedor Comercial', 'vendedor@systemhome.com', '0981 555 555', 'vendedor', now, now]);
-    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,${q},${q})`,
+    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, email_verified, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,1,${q},${q})`,
       ['tecnico', bcrypt.hashSync('tecnico123', 10), 'Tecnico Especialista', 'tecnico@systemhome.com', '0981 333 333', 'tecnico', now, now]);
-    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,${q},${q})`,
+    run(`INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, email_verified, created_at, updated_at) VALUES (${q},${q},${q},${q},${q},(SELECT id FROM roles WHERE name = ${q}),1,1,${q},${q})`,
       ['cliente', bcrypt.hashSync('cliente123', 10), 'Cliente Residencial', 'cliente@systemhome.com', '0981 666 666', 'cliente', now, now]);
   }
 
@@ -776,6 +776,8 @@ function seedData() {
     if (clientId) {
       run(`INSERT INTO client_history (client_id, entry_type, description, related_type, related_id, created_at, created_by_user_id) VALUES (${q},${q},${q},${q},${q},${q},${q})`,
         [clientId, 'cliente_creado', 'Cliente registrado en SYSTEMHOME', 'client', clientId, now, adminUserId]);
+      // El usuario demo "cliente" queda vinculado a esta ficha para probar el portal.
+      run(`UPDATE users SET client_id = ${q} WHERE username = 'cliente' AND client_id IS NULL`, [clientId]);
     }
   }
 }
