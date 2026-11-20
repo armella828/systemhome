@@ -6,7 +6,8 @@ Migra registros y relaciones, conserva IDs, corrige mojibake y verifica integrid
 Uso:
   python backend/migrate_sqlite_to_pg.py --sqlite <ruta.sqlite> --pg <DATABASE_URL> [--verify-only]
 
-La migracion es repetible:usa TRUNCATE ... RESTART IDENTITY CASCADE antes de cargar.
+La migracion es repetible: usa TRUNCATE ... RESTART IDENTITY CASCADE antes de cargar.
+Por seguridad, ese borrado solo se permite con ALLOW_DESTRUCTIVE_MIGRATION=1.
 NUNCA ejecutar contra produccion sin autorizacion y respaldo.
 """
 import argparse
@@ -165,6 +166,14 @@ def migrate(sqlite_path, pg_url, verify_only=False):
         check_integrity(cur, before)
         con.rollback()
         return
+
+    if os.environ.get("ALLOW_DESTRUCTIVE_MIGRATION") != "1":
+        con.rollback()
+        raise SystemExit(
+            "ABORTADO: esta migración ejecuta TRUNCATE y borraría los datos actuales de PostgreSQL.\n"
+            "No se ejecutó nada. Si realmente desea reemplazar la base, respalde primero y defina "
+            "ALLOW_DESTRUCTIVE_MIGRATION=1 de forma explícita."
+        )
 
     print("\n=== CARGANDO EN POSTGRES (transaccion) ===")
     # Desactivar foreign keys temporalmente para carga con IDs explicitos

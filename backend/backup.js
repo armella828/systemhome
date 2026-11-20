@@ -3,7 +3,7 @@
 // SYSTEMHOME - Backup cifrado de PostgreSQL
 // Uso: node backend/backup.js
 // Requiere: DATABASE_URL, BACKUP_ENCRYPTION_KEY
-// Opcional: BACKUP_DIR, BACKUP_RETENTION_DAYS, PG_BIN
+// Opcional: BACKUP_DIR, BACKUP_RETENTION_DAYS (0 = conservar siempre), PG_BIN
 // ============================================================
 require('dotenv').config();
 const fs = require('fs');
@@ -12,7 +12,9 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, 'backups');
-const RETENTION_DAYS = Number(process.env.BACKUP_RETENTION_DAYS || 30);
+// Por defecto no se elimina ningún respaldo. Solo se activa la retención si el
+// administrador define explícitamente un número mayor que cero.
+const RETENTION_DAYS = Number(process.env.BACKUP_RETENTION_DAYS || 0);
 const KEY = process.env.BACKUP_ENCRYPTION_KEY;
 
 function log(msg) { console.log(`[backup ${new Date().toISOString()}] ${msg}`); }
@@ -56,6 +58,10 @@ function encryptFile(inputPath, outputPath, key) {
 }
 
 function applyRetention(dir) {
+  if (!Number.isFinite(RETENTION_DAYS) || RETENTION_DAYS <= 0) {
+    log('Retención desactivada: se conservan todos los respaldos');
+    return 0;
+  }
   const now = Date.now();
   const cutoff = now - RETENTION_DAYS * 24 * 3600 * 1000;
   const files = fs.readdirSync(dir).filter((f) => f.startsWith('systemhome-') && f.endsWith('.dump.enc'));

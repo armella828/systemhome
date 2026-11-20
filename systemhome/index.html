@@ -86,61 +86,76 @@
                         <p>Cree su cuenta para solicitar cotizaciones y compras en línea</p>
                     </div>
 
+                    <style>
+                        .register-help{display:block;font-size:11.5px;line-height:1.45;color:#475569;margin:5px 0 0}
+                        .register-help strong{color:#0e7490}
+                        .register-tip{font-size:12px;color:#334155;line-height:1.6;margin:6px 0 14px;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px}
+                    </style>
                     <form id="registerForm" onsubmit="return Auth.handleRegister(event)">
                         <div class="form-group">
                             <label for="regName">Nombre Completo / Razón Social *</label>
-                            <input type="text" id="regName" class="form-control" placeholder="Ej: María Gómez o MI EMPRESA SRL" required>
+                            <input type="text" id="regName" class="form-control" placeholder="Escriba su nombre real" required aria-describedby="help-regName">
+                            <small class="register-help" id="help-regName"><strong>Cómo llenarlo:</strong> si es particular, escriba nombre y apellido. Si es empresa, escriba el nombre exacto de la razón social, sin abreviaturas inventadas.</small>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="regClientType">Tipo de Cliente</label>
-                                <select id="regClientType" class="form-control">
+                                <select id="regClientType" class="form-control" aria-describedby="help-regClientType">
                                     <option value="persona">Persona física</option>
                                     <option value="empresa">Empresa / Razón social</option>
                                 </select>
+                                <small class="register-help" id="help-regClientType"><strong>Cómo elegir:</strong> Persona física si la compra es a su nombre; Empresa si factura a nombre de una organización.</small>
                             </div>
                             <div class="form-group">
                                 <label for="regDocumentId">CI / RUC (opcional)</label>
-                                <input type="text" id="regDocumentId" class="form-control" placeholder="Ej: 1234567-8 o 80012345-6">
+                                <input type="text" id="regDocumentId" class="form-control" placeholder="Número de su documento" aria-describedby="help-regDocumentId">
+                                <small class="register-help" id="help-regDocumentId"><strong>Cómo llenarlo:</strong> su número de cédula si es persona, o el RUC si es empresa. Ej.: <strong>1234567</strong> o <strong>80012345-6</strong>. Si no lo tiene a mano, déjelo vacío.</small>
                             </div>
                         </div>
                         <div class="form-group">
                             <label for="regEmail">Correo Electrónico * <small>(lo usaremos para verificar su cuenta)</small></label>
-                            <input type="email" id="regEmail" class="form-control" placeholder="cliente@ejemplo.com" required>
+                            <input type="email" id="regEmail" class="form-control" placeholder="su-correo-real@ejemplo.com" required aria-describedby="help-regEmail">
+                            <small class="register-help" id="help-regEmail"><strong>Cómo llenarlo:</strong> use un correo que revise a diario, porque allí llegará el enlace para activar la cuenta. No use un correo de prueba ni uno que ya no utilice.</small>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="regPhone">Teléfono / WhatsApp</label>
-                                <input type="text" id="regPhone" class="form-control" placeholder="0981 123 456">
+                                <input type="text" id="regPhone" class="form-control" placeholder="+591 6XX XXX XX" aria-describedby="help-regPhone">
+                                <small class="register-help" id="help-regPhone"><strong>Cómo llenarlo:</strong> escriba el número con código de país, por ejemplo <strong>+591 64595762</strong>. Debe ser un número activo de WhatsApp.</small>
                             </div>
                             <div class="form-group">
                                 <label for="regCity">Ciudad</label>
-                                <input type="text" id="regCity" class="form-control" placeholder="Ej: Asunción">
+                                <input type="text" id="regCity" class="form-control" placeholder="Ciudad donde recibe el servicio" aria-describedby="help-regCity">
+                                <small class="register-help" id="help-regCity"><strong>Cómo llenarlo:</strong> escriba la ciudad donde recibe el servicio, por ejemplo <strong>Yacuiba</strong>.</small>
                             </div>
                         </div>
                         <div class="form-group">
                             <label for="regAddress">Dirección</label>
-                            <input type="text" id="regAddress" class="form-control" placeholder="Calle, número y barrio">
+                            <input type="text" id="regAddress" class="form-control" placeholder="Calle, número y barrio" aria-describedby="help-regAddress">
+                            <small class="register-help" id="help-regAddress"><strong>Cómo llenarlo:</strong> escriba calle, número y barrio. Si no recuerda el número, indique una referencia concreta como “frente a la plaza central”.</small>
                         </div>
                         <div class="form-group">
                             <label for="regUsername">Nombre de Usuario * <small>(4 a 20 caracteres)</small></label>
                             <input type="text" id="regUsername" class="form-control"
-                                placeholder="Elija un nombre de usuario único" required minlength="4" maxlength="20" autocomplete="off" pattern="[A-Za-z0-9._-]{4,20}">
+                                placeholder="Ej.: maria.gomez" required minlength="4" maxlength="20" autocomplete="off" pattern="[A-Za-z0-9._-]{4,20}" aria-describedby="help-regUsername">
+                            <small class="register-help" id="help-regUsername"><strong>Cómo llenarlo:</strong> de 4 a 20 caracteres, solo letras, números, punto, guion o guion bajo. No use espacios. Ej.: <strong>maria.gomez</strong> (no copie este ejemplo).</small>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="regPassword">Contraseña * <small>(mínimo 8 caracteres)</small></label>
                                 <input type="password" id="regPassword" class="form-control"
-                                    placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+                                    placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password" aria-describedby="help-regPassword">
+                                <small class="register-help" id="help-regPassword"><strong>Cómo llenarlo:</strong> escriba al menos 8 caracteres y combine letras con números. No use la misma contraseña de otro sitio.</small>
                             </div>
                             <div class="form-group">
                                 <label for="regConfirmPassword">Confirmar Contraseña *</label>
                                 <input type="password" id="regConfirmPassword" class="form-control"
-                                    placeholder="Repita la contraseña" required minlength="8" autocomplete="new-password">
+                                    placeholder="Repita la contraseña" required minlength="8" autocomplete="new-password" aria-describedby="help-regConfirmPassword">
+                                <small class="register-help" id="help-regConfirmPassword"><strong>Cómo llenarlo:</strong> repita exactamente la contraseña del campo anterior, sin espacios al inicio ni al final.</small>
                             </div>
                         </div>
-                        <p style="font-size:12px;color:#64748b;margin:4px 0 12px;">
-                            Su cuenta quedará pendiente de verificación. Le enviaremos un correo real con un enlace; mientras tanto no podrá ingresar.
+                        <p class="register-tip">
+                            <strong>Después de crear la cuenta:</strong> abra su correo, busque el mensaje de SYSTEMHOME y haga clic en <strong>“Verificar mi correo”</strong>. Solo después de eso podrá iniciar sesión. Si el correo no aparece en 5 minutos, revise la carpeta de spam o use el botón <strong>“Reenviar correo de verificación”</strong>.
                         </p>
                         <div id="registerError" class="login-error" style="display:none;"></div>
                         <div id="registerSuccess" class="login-error" style="display:none;color:#065f46;background:#ecfdf5;border-color:#a7f3d0;"></div>

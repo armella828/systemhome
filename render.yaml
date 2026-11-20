@@ -50,4 +50,4 @@ services:
       - key: BACKUP_ENCRYPTION_KEY
         sync: false
       - key: BACKUP_RETENTION_DAYS
-        value: 30
+        value: "0"

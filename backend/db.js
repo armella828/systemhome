@@ -574,6 +574,10 @@ function initSchema() {
     addColumnIfNotExists('budgets', 'prospect_ruc', 'TEXT');
     addColumnIfNotExists('budget_items', 'discount_percent', 'REAL NOT NULL DEFAULT 0');
     addColumnIfNotExists('budget_items', 'notes', 'TEXT');
+    // Historial de versiones: al editar una cotización se marca la versión anterior
+    // como inactiva en lugar de borrarla, para no perder líneas ya presupuestadas.
+    addColumnIfNotExists('budget_items', 'active', 'INTEGER NOT NULL DEFAULT 1');
+    addColumnIfNotExists('budget_items', 'superseded_at', 'TEXT');
     addColumnIfNotExists('technicians', 'user_id', 'INTEGER REFERENCES users(id)');
     // Vinculación real usuario ↔ cliente y estado de verificación de correo.
     addColumnIfNotExists('users', 'client_id', 'INTEGER REFERENCES clients(id)');

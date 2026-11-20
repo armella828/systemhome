@@ -41,7 +41,7 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 
 // Health check endpoints for Render / monitoring
 app.get(['/health', '/api/health'], (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime(), version: '2.1.0-no-delete-verify' });
 });
 
 // ============================================================
@@ -409,8 +409,11 @@ function formatBudget(b) {
 }
 
 // Persiste los items tambien en la tabla relacional budget_items.
+// Las versiones anteriores se conservan como inactivas: nunca se borran líneas
+// de una cotización ya guardada.
 function syncBudgetItems(budgetId, items = []) {
-  db.prepare('DELETE FROM budget_items WHERE budget_id = ?').run(budgetId);
+  const now = new Date().toISOString();
+  db.prepare('UPDATE budget_items SET active = 0, superseded_at = ? WHERE budget_id = ? AND active = 1').run(now, budgetId);
   items.forEach(item => {
     const qty = Number(item.quantity || item.qty || 1) || 1;
     const price = Number(item.unit_price || item.unitPrice || item.price || 0) || 0;
@@ -1420,25 +1423,18 @@ app.delete('/api/users/:id', authMiddleware, requireRole(['admin']), (req, res) 
   const current = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!current) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-  // Desvincular referencias antes de borrar. No se elimina ningún cliente ni
-  // historial: solo se rompe la FK circular para no perder datos de negocio.
-  const ownClients = db.prepare('SELECT id FROM clients WHERE created_by_user_id = ?').all(userId).map(c => c.id);
-  if (ownClients.length) {
-    const placeholders = ownClients.map(() => '?').join(',');
-    db.prepare(`UPDATE users SET client_id = NULL WHERE client_id IN (${placeholders})`).run(...ownClients);
-  }
-  db.prepare('UPDATE clients SET created_by_user_id = NULL WHERE created_by_user_id = ?').run(userId);
-  db.prepare('UPDATE users SET client_id = NULL WHERE client_id = ?').run(current.client_id || -1);
-  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-  audit(req, 'usuario_eliminado', 'users', 'user', userId, { username: current.username }, null);
-  res.json({ ok: true });
+  // Baja lógica: el usuario deja de poder ingresar, pero su registro, auditoría
+  // y relaciones se conservan íntegramente. Nunca se borran datos de negocio.
+  db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), userId);
+  audit(req, 'usuario_eliminado', 'users', 'user', userId, { username: current.username }, { username: current.username, active: 0 });
+  res.json({ ok: true, message: 'Usuario desactivado. Su historial y datos se conservan.' });
 });
 
 // ============================================================
 // CLIENTES Y UBICACIÓN GPS
 // ============================================================
 app.get('/api/clients', authMiddleware, requireRole(['admin', 'vendedor']), (req, res) => {
-  const rows = db.prepare('SELECT * FROM clients ORDER BY id DESC').all();
+  const rows = db.prepare('SELECT * FROM clients WHERE active = 1 ORDER BY id DESC').all();
   res.json({ clients: rows.map(formatClient) });
 });
 
@@ -1507,9 +1503,9 @@ app.delete('/api/clients/:id', authMiddleware, requireRole(['admin']), (req, res
   const clientId = Number(req.params.id);
   const current = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
   if (!current) return res.status(404).json({ error: 'Cliente no encontrado' });
-  db.prepare('DELETE FROM clients WHERE id = ?').run(clientId);
-  audit(req, 'cliente_eliminado', 'clients', 'client', clientId, { name: current.name }, null);
-  res.json({ ok: true });
+  db.prepare('UPDATE clients SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), clientId);
+  audit(req, 'cliente_eliminado', 'clients', 'client', clientId, { name: current.name }, { name: current.name, active: 0 });
+  res.json({ ok: true, message: 'Cliente desactivado. Su ficha, historial, ventas y documentos se conservan.' });
 });
 
 // SH-A03: Historial Integral del Cliente
@@ -2223,17 +2219,17 @@ app.delete('/api/technicians/:id', authMiddleware, requireRole(['admin']), (req,
   const current = db.prepare('SELECT * FROM technicians WHERE id = ?').get(techId);
   if (!current) return res.status(404).json({ error: 'Técnico no encontrado' });
 
+  const now = new Date().toISOString();
   if (current.user_id) {
-    db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), current.user_id);
+    db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now, current.user_id);
   }
-  db.prepare('DELETE FROM work_order_assignments WHERE technician_id = ?').run(techId);
-  db.prepare('UPDATE work_orders SET technician_id = NULL WHERE technician_id = ?').run(techId);
-  db.prepare('UPDATE maintenances SET technician_id = NULL WHERE technician_id = ?').run(techId);
-  db.prepare('DELETE FROM technicians WHERE id = ?').run(techId);
+  // Baja lógica: se conservan el técnico, sus asignaciones y el historial de
+  // órdenes/mantenimientos. Solo deja de estar disponible para nuevas asignaciones.
+  db.prepare('UPDATE technicians SET active = 0, updated_at = ? WHERE id = ?').run(now, techId);
 
-  audit(req, 'tecnico_eliminado', 'technicians', 'technician', techId, current, null);
-  publishChange('technicians', 'deleted', { id: techId, name: current.name });
-  res.json({ ok: true, message: 'Técnico eliminado. Sus órdenes quedaron sin asignar.' });
+  audit(req, 'tecnico_eliminado', 'technicians', 'technician', techId, current, { ...current, active: 0 });
+  publishChange('technicians', 'updated', { id: techId, name: current.name, active: 0 });
+  res.json({ ok: true, message: 'Técnico desactivado. Sus asignaciones e historial se conservan.' });
 });
 
 app.get('/api/workorders', authMiddleware, (req, res) => {
@@ -3572,6 +3568,12 @@ app.post('/api/intelligence/run', authMiddleware, requireRole(['admin']), (req, 
 // ============================================================
 // SPA FALLBACK
 // ============================================================
+// Páginas de un solo propósito: deben servirse antes del comodín SPA.
+app.get(['/verify-email', '/reset-password'], (req, res) => {
+  const file = req.path === '/verify-email' ? 'verify-email.html' : 'reset-password.html';
+  res.sendFile(path.join(__dirname, '..', 'systemhome', file));
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'systemhome', 'index.html'));
 });

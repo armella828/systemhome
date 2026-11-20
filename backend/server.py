@@ -391,9 +391,9 @@ def delete_client(client_id):
         return jsonify({'error': 'No autenticado'}), 401
     conn = get_connection()
     try:
-        conn.execute('DELETE FROM clients WHERE id = ?', (client_id,))
+        conn.execute('UPDATE clients SET active = 0, updated_at = ? WHERE id = ?', (now_iso(), client_id))
         conn.commit()
-        return jsonify({'ok': True})
+        return jsonify({'ok': True, 'message': 'Cliente desactivado; sus datos se conservan.'})
     finally:
         conn.close()
 
@@ -1004,9 +1004,9 @@ def delete_user(user_id):
         return error
     conn = get_connection()
     try:
-        conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        conn.execute('UPDATE users SET active = 0, updated_at = ? WHERE id = ?', (now_iso(), user_id))
         conn.commit()
-        return jsonify({'ok': True})
+        return jsonify({'ok': True, 'message': 'Usuario desactivado; su historial se conserva.'})
     finally:
         conn.close()
 
@@ -1024,6 +1024,9 @@ def static_files(path):
 if __name__ == '__main__':
     import sys
     if '--reset' in sys.argv:
+        if os.environ.get('ALLOW_DB_RESET') != '1':
+            print('ABORTADO: --reset borraría la base. Defina ALLOW_DB_RESET=1 de forma explícita.')
+            sys.exit(1)
         db_file = os.environ.get('DB_PATH', str(Path(__file__).resolve().parent / 'database' / 'systemhome.sqlite'))
         if Path(db_file).exists():
             Path(db_file).unlink()

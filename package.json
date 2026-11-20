@@ -12,7 +12,8 @@
     "rotate-credentials": "node backend/rotate-credentials.js",
     "test": "node tests/unit.test.js",
     "test:api": "node tests/api.test.js",
-    "test:all": "npm run test && npm run test:api",
+    "test:no-delete": "node tests/no-delete-verify.test.js",
+    "test:all": "npm run test && npm run test:api && npm run test:no-delete",
     "start:py": "python backend/server.py"
   },
   "dependencies": {

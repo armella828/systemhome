@@ -251,14 +251,13 @@ const Auth = {
       if (result?.error) throw new Error(result.error);
       if (!result?.user) throw new Error('El servidor no confirmó la creación de la cuenta.');
 
-      const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
       const safeEmail = App.escapeHtml(email);
       let html = `<strong>✓ Cuenta creada correctamente.</strong><br>`;
       html += result.emailSent
-        ? `Revise su correo (<strong>${safeEmail}</strong>) y haga clic en el enlace de verificación para poder ingresar.`
+        ? `Paso 1: abra su correo (<strong>${safeEmail}</strong>). Paso 2: haga clic en <strong>“Verificar mi correo”</strong>. Paso 3: regrese aquí e ingrese con su usuario y contraseña.`
         : `No se pudo enviar el correo de verificación. Contacte al administrador o intente reenviarlo.`;
       if (result.devToken) {
-        html += `<br><small>Modo desarrollo: <a href="${base}/auth/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta ahora</a>.</small>`;
+        html += `<br><small>Modo desarrollo: <a href="/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta ahora</a>.</small>`;
       }
       html += `<br><button type="button" class="btn btn-sm btn-secondary" data-resend style="margin-top:8px;">Reenviar correo de verificación</button>`;
       successEl.innerHTML = html;
@@ -284,8 +283,7 @@ const Auth = {
       if (result?.error) throw new Error(result.error);
       App.showToast(result.message || 'Solicitud de reenvío procesada', result.message?.includes('enviado') ? 'success' : 'warning');
       if (result.devToken && successEl) {
-        const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
-        successEl.innerHTML += `<br><small>Nuevo enlace de desarrollo: <a href="${base}/auth/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta</a>.</small>`;
+        successEl.innerHTML += `<br><small>Nuevo enlace de desarrollo: <a href="/verify-email?token=${encodeURIComponent(result.devToken)}">verificar cuenta</a>.</small>`;
       }
     } catch (err) {
       App.showToast(err.message || 'No se pudo reenviar el correo', 'error');
@@ -1296,8 +1294,7 @@ const App = {
       if (res.needsVerification) {
         let msg = 'Perfil actualizado. El correo cambió: verifique la nueva dirección antes de volver a ingresar.';
         if (res.devToken) {
-          const base = (window.API_BASE_URL || '/api').replace(/\/$/, '');
-          msg += ' Modo desarrollo: ' + base + '/auth/verify-email?token=' + encodeURIComponent(res.devToken);
+          msg += ' Modo desarrollo: /verify-email?token=' + encodeURIComponent(res.devToken);
         }
         Auth.clearCurrentUser();
         DB._setToken(null);

@@ -210,6 +210,7 @@ python tools/api_check.py
 ## Documentación adicional
 
 - Auditoría inicial: `docs/AUDITORIA-2026-11-17.md`
+- Garantía de no borrado y verificación de correo: `docs/NO-BORRADO-Y-VERIFICACION.md`
 - Guía de operación empresarial: sección 19 más abajo.
 
 
@@ -440,6 +441,7 @@ npm run restore -- archivo.dump.enc --yes --db "$DATABASE_URL"
 
 Cada backup genera `systemhome-<fecha>.dump.enc` y un `manifest-*.json` con SHA256.
 Los datasets generados por INTELLIGENCE y los backups están excluidos de Git.
+La retención está desactivada por defecto (`BACKUP_RETENTION_DAYS=0`): ningún respaldo se borra automáticamente.
 
 ### 19.6 SYSTEMHOME INTELLIGENCE
 
