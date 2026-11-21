@@ -139,7 +139,9 @@ async function main() {
   const techResp = await req('POST', '/api/technicians', {
     name: MARKER,
     specialty: 'Prueba automatizada',
-    phone: '0981990002'
+    phone: '0981990002',
+    username: `tech_${SUFFIX.toLowerCase()}`,
+    password: 'Tecnico123'
   });
   assert(techResp.status === 201, `técnico POST HTTP ${techResp.status}: ${JSON.stringify(techResp.data)}`);
   created.technicianId = techResp.data.technician.id;

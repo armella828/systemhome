@@ -23,7 +23,7 @@ const WorkOrdersModule = {
     const isTech = user && user.role === 'tecnico';
     const isAdmin = user && user.role === 'admin';
     const orders = DB.getWorkOrders();
-    const techs = DB.getTechnicians();
+    const techs = DB.getTechnicians().filter(t => t.active);
     const clients = DB.getClients();
 
     target.innerHTML = `
@@ -128,7 +128,7 @@ const WorkOrdersModule = {
                   <label class="required">Técnico Asignado</label>
                   <select class="form-control" id="orderTechId" required>
                     <option value="">Seleccionar técnico...</option>
-                    ${techs.map(t => `<option value="${t.id}">${this.escapeHtml(t.name)} (${t.specialty || 'General'})</option>`).join('')}
+                    ${techs.map(t => `<option value="${t.id}">${this.escapeHtml(t.name)}${t.username ? ` · ${this.escapeHtml(t.username)}` : ' · SIN ACCESO'}${t.specialty ? ` · ${this.escapeHtml(t.specialty)}` : ''}</option>`).join('')}
                   </select>
                 </div>
                 <div class="form-group flex-1">

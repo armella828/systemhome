@@ -828,7 +828,7 @@ const App = {
                     <td>${this.escapeHtml(t.specialty || '-')}</td>
                     <td>${this.escapeHtml(t.phone || '-')}</td>
                     <td>${this.escapeHtml(t.email || '-')}</td>
-                    <td>${this.escapeHtml(t.username || 'Sin acceso')}</td>
+                    <td>${t.username ? this.escapeHtml(t.username) : '<span class="badge badge-pendiente"><span class="dot"></span> Sin acceso</span>'}</td>
                     <td><span class="badge ${t.active ? 'badge-aprobado' : 'badge-inactive'}"><span class="dot"></span> ${t.active ? 'Activo' : 'Inactivo'}</span></td>
                     <td>
                       <div class="actions" style="display:flex;gap:4px;">
@@ -882,14 +882,17 @@ const App = {
               </div>
             </div>
             ${technician?.user_id ? '' : `
+              <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#1e40af;">
+                ${technician ? 'Este técnico aún no tiene perfil de acceso. Cree uno para saber quién ejecuta cada orden.' : 'Cada técnico necesita su propio usuario para iniciar sesión y recibir sus órdenes.'}
+              </div>
               <div class="form-row">
                 <div class="form-group">
-                  <label>Usuario de acceso (opcional)</label>
-                  <input type="text" id="techUsername" class="form-control" placeholder="Ej: tecnico2">
+                  <label class="required">Usuario de acceso</label>
+                  <input type="text" id="techUsername" class="form-control" placeholder="Ej: carlos.mendoza" required autocomplete="off">
                 </div>
                 <div class="form-group">
-                  <label>Contraseña (mín. 6)</label>
-                  <input type="password" id="techPassword" class="form-control" minlength="6" placeholder="••••••••">
+                  <label class="required">Contraseña (mín. 6)</label>
+                  <input type="password" id="techPassword" class="form-control" minlength="6" placeholder="••••••••" required>
                 </div>
               </div>
             `}
@@ -927,6 +930,11 @@ const App = {
     };
     if (!payload.name) {
       App.showToast('Ingrese el nombre del técnico', 'warning');
+      return false;
+    }
+    const editing = technicianId ? DB.getTechnicians().find(t => t.id === technicianId) : null;
+    if (!editing?.user_id && (!payload.username || (payload.password || '').length < 6)) {
+      App.showToast('Ingrese usuario y contraseña (mínimo 6 caracteres) para crear el perfil del técnico', 'warning');
       return false;
     }
     const btn = document.getElementById('btnSaveTechnician');

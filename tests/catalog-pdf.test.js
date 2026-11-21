@@ -88,5 +88,5 @@ async function fetchPdf(query) {
   ok(countOverlaps(filtered.buf) === 0, 'sin texto superpuesto en catálogo filtrado');
 
   console.log('\nRESULTADO: ' + (failures ? `${failures} FALLOS` : 'Catálogo PDF verificado'));
-  process.exit(failures ? 1 : 0);
-})().catch(err => { console.error('ERROR', err); process.exit(1); });
+  process.exitCode = failures ? 1 : 0;
+})().catch(err => { console.error('ERROR', err); process.exitCode = 1; });

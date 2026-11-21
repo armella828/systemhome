@@ -158,11 +158,16 @@ const ReportsModule = {
           </tr>`).join('');
     },
 
-    exportReport(format) {
+    async exportReport(format) {
         const filters = this.getFilters();
         if (format === 'excel') {
-            DB.exportServiceReport(filters);
-            App.showToast('Exportando reporte en Excel (CSV)...', 'info');
+            try {
+                const result = await DB.exportServiceReport(filters);
+                App.showToast(`Reporte exportado: ${result.filename}`, 'success');
+            } catch (err) {
+                App.showToast(err.message || 'No se pudo exportar el reporte a Excel', 'error');
+            }
+            return;
         } else {
             // PDF: exportar como CSV con extensión .pdf no es ideal; usamos la vista de impresión
             // Para PDF real, generamos un documento imprimible

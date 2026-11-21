@@ -128,6 +128,17 @@ function ensureClientAccess(req, res, clientId) {
   return true;
 }
 
+// Un técnico solo puede ver y manipular las órdenes asignadas a su perfil.
+function ensureTechnicianOrderAccess(req, res, order) {
+  if ((req.user?.role || '').toLowerCase() !== 'tecnico') return true;
+  const tech = db.prepare('SELECT id FROM technicians WHERE user_id = ?').get(req.user.id);
+  if (!tech || Number(order.technician_id) !== Number(tech.id)) {
+    res.status(404).json({ error: 'Orden no encontrada' });
+    return false;
+  }
+  return true;
+}
+
 function clientIdForRequest(req, bodyClientId) {
   const role = (req.user?.role || '').toLowerCase();
   if (role === 'cliente') return req.user.clientId;
@@ -2546,24 +2557,21 @@ app.post('/api/technicians', authMiddleware, requireRole(['admin']), (req, res) 
   const { name, specialty = '', phone = '', email = '', username, password, active = true } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'El nombre del técnico es obligatorio' });
 
-  let userId = null;
-  if (username || password) {
-    if (!username || !password || String(password).length < 6) {
-      return res.status(400).json({ error: 'Para crear acceso de técnico ingrese usuario y contraseña (mínimo 6 caracteres)' });
-    }
-    const dup = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(String(username).trim());
-    if (dup) return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
-    const role = db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'tecnico'").get();
-    if (!role) return res.status(500).json({ error: 'No existe el rol técnico en la base de datos' });
-    const now = new Date().toISOString();
-    const inserted = db.prepare(`
-      INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(String(username).trim(), bcrypt.hashSync(String(password), 10), String(name).trim(), String(email || ''), String(phone || ''), role.id, active ? 1 : 0, now, now);
-    userId = inserted.lastInsertRowid;
+  // Cada técnico debe tener su propio acceso: así se sabe quién ejecuta cada orden.
+  if (!username || !password || String(password).length < 6) {
+    return res.status(400).json({ error: 'Ingrese usuario y contraseña (mínimo 6 caracteres) para el perfil del técnico' });
   }
-
+  const dup = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(String(username).trim());
+  if (dup) return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
+  const role = db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'tecnico'").get();
+  if (!role) return res.status(500).json({ error: 'No existe el rol técnico en la base de datos' });
   const now = new Date().toISOString();
+  const inserted = db.prepare(`
+    INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(String(username).trim(), bcrypt.hashSync(String(password), 10), String(name).trim(), String(email || ''), String(phone || ''), role.id, active ? 1 : 0, now, now);
+  const userId = inserted.lastInsertRowid;
+
   const result = db.prepare(`
     INSERT INTO technicians (name, specialty, phone, email, user_id, active, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -2581,34 +2589,61 @@ app.put('/api/technicians/:id', authMiddleware, requireRole(['admin']), (req, re
   const current = db.prepare('SELECT * FROM technicians WHERE id = ?').get(techId);
   if (!current) return res.status(404).json({ error: 'Técnico no encontrado' });
 
-  const { name, specialty, phone, email, active, password } = req.body || {};
-  const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE technicians SET name = ?, specialty = ?, phone = ?, email = ?, active = ?, updated_at = ? WHERE id = ?
-  `).run(
-    name !== undefined ? String(name).trim() : current.name,
-    specialty !== undefined ? String(specialty) : current.specialty,
-    phone !== undefined ? String(phone) : current.phone,
-    email !== undefined ? String(email) : current.email,
-    active !== undefined ? (active ? 1 : 0) : current.active,
-    now, techId
-  );
+  const { name, specialty, phone, email, active, username, password } = req.body || {};
+  if (password && String(password).length < 6) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  }
 
-  if (current.user_id) {
+  const finalName = name !== undefined ? String(name).trim() : current.name;
+  const finalEmail = email !== undefined ? String(email) : current.email;
+  const finalPhone = phone !== undefined ? String(phone) : current.phone;
+  const finalActive = active !== undefined ? (active ? 1 : 0) : current.active;
+  const now = new Date().toISOString();
+
+  let userId = current.user_id;
+
+  if (!userId) {
+    // Técnicos creados antes de existir el perfil: aquí se les crea el acceso.
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Este técnico aún no tiene acceso. Ingrese usuario y contraseña para crear su perfil.' });
+    }
+    const dup = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(String(username).trim());
+    if (dup) return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
+    const role = db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'tecnico'").get();
+    if (!role) return res.status(500).json({ error: 'No existe el rol técnico en la base de datos' });
+    const inserted = db.prepare(`
+      INSERT INTO users (username, password_hash, full_name, email, phone, role_id, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(String(username).trim(), bcrypt.hashSync(String(password), 10), finalName, finalEmail, finalPhone, role.id, finalActive, now, now);
+    userId = inserted.lastInsertRowid;
+  } else {
+    if (username !== undefined && String(username).trim()) {
+      const dup = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id <> ?')
+        .get(String(username).trim(), userId);
+      if (dup) return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
+      db.prepare('UPDATE users SET username = ?, updated_at = ? WHERE id = ?')
+        .run(String(username).trim(), now, userId);
+    }
+    const existing = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId);
     db.prepare(`
       UPDATE users SET full_name = ?, email = ?, phone = ?, active = ?, password_hash = ?,
         token_version = CASE WHEN ? THEN COALESCE(token_version, 0) + 1 ELSE COALESCE(token_version, 0) END,
         updated_at = ? WHERE id = ?
     `).run(
-      name !== undefined ? String(name).trim() : current.name,
-      email !== undefined ? String(email) : (db.prepare('SELECT email FROM users WHERE id = ?').get(current.user_id)?.email || ''),
-      phone !== undefined ? String(phone) : (db.prepare('SELECT phone FROM users WHERE id = ?').get(current.user_id)?.phone || ''),
-      active !== undefined ? (active ? 1 : 0) : 1,
-      password && String(password).length >= 6 ? bcrypt.hashSync(String(password), 10) : db.prepare('SELECT password_hash FROM users WHERE id = ?').get(current.user_id).password_hash,
-      password && String(password).length >= 6 ? 1 : 0,
-      now, current.user_id
+      finalName, finalEmail, finalPhone, finalActive,
+      password ? bcrypt.hashSync(String(password), 10) : (existing?.password_hash || ''),
+      password ? 1 : 0,
+      now, userId
     );
   }
+
+  db.prepare(`
+    UPDATE technicians SET name = ?, specialty = ?, phone = ?, email = ?, active = ?, user_id = ?, updated_at = ? WHERE id = ?
+  `).run(
+    finalName,
+    specialty !== undefined ? String(specialty) : current.specialty,
+    finalPhone, finalEmail, finalActive, userId, now, techId
+  );
 
   const tech = db.prepare('SELECT * FROM technicians WHERE id = ?').get(techId);
   audit(req, 'tecnico_actualizado', 'technicians', 'technician', techId, current, tech);
@@ -2644,10 +2679,14 @@ app.get('/api/workorders', authMiddleware, (req, res) => {
     where.push('w.client_id = ?');
     params.push(myClientId);
   } else if (req.user.role === 'tecnico') {
-    const tech = db.prepare('SELECT id FROM technicians WHERE email = ? OR phone = ?').get(req.user.email, req.user.phone);
+    // El perfil del técnico queda ligado por user_id. Si no hay vínculo,
+    // no debe ver las órdenes de nadie (fail closed).
+    const tech = db.prepare('SELECT id FROM technicians WHERE user_id = ?').get(req.user.id);
     if (tech) {
       where.push('w.technician_id = ?');
       params.push(tech.id);
+    } else {
+      where.push('1 = 0');
     }
   } else {
     if (clientId && clientId !== 'all') { where.push('w.client_id = ?'); params.push(clientId); }
@@ -2686,6 +2725,7 @@ app.get('/api/workorders/:id', authMiddleware, (req, res) => {
 
   if (!row) return res.status(404).json({ error: 'Orden no encontrada' });
   if (!ensureClientAccess(req, res, row.client_id)) return;
+  if (!ensureTechnicianOrderAccess(req, res, row)) return;
   const history = db.prepare('SELECT * FROM order_history WHERE work_order_id = ? ORDER BY created_at DESC').all(orderId);
   res.json({ workOrder: formatWorkOrder(row), history });
 });
@@ -2735,6 +2775,7 @@ app.put('/api/workorders/:id', authMiddleware, (req, res) => {
   const current = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(orderId);
   if (!current) return res.status(404).json({ error: 'Orden no encontrada' });
   if (!ensureClientAccess(req, res, current.client_id)) return;
+  if (!ensureTechnicianOrderAccess(req, res, current)) return;
 
   // Regla estricta: Una orden cerrada no puede modificarse libremente salvo por Administrador
   if (current.status === 'cerrada' && req.user.role !== 'admin') {
@@ -2775,6 +2816,9 @@ app.put('/api/workorders/:id', authMiddleware, (req, res) => {
 // Técnico inicia orden
 app.post('/api/workorders/:id/start', authMiddleware, requireRole(['admin', 'tecnico']), (req, res) => {
   const orderId = Number(req.params.id);
+  const order = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(orderId);
+  if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+  if (!ensureTechnicianOrderAccess(req, res, order)) return;
   const now = new Date().toISOString();
   db.prepare("UPDATE work_orders SET status = 'en_proceso', updated_at = ? WHERE id = ?").run(now, orderId);
 
@@ -2792,6 +2836,7 @@ app.post('/api/workorders/:id/finish', authMiddleware, requireRole(['admin', 'te
   const orderId = Number(req.params.id);
   const order = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(orderId);
   if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+  if (!ensureTechnicianOrderAccess(req, res, order)) return;
 
   const { workDone, observations, materialsUsed = [], installedEquipment = [], evidencePhotos = [], clientSignature } = req.body;
   const now = new Date().toISOString();
@@ -2904,6 +2949,7 @@ app.get('/api/workorders/:id/export', authMiddleware, (req, res) => {
     const clientId = getOrCreateClientIdForUser(req.user);
     if (order.client_id !== clientId) return res.status(403).json({ error: 'Acceso denegado a esta orden' });
   }
+  if (!ensureTechnicianOrderAccess(req, res, order)) return;
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
   res.setHeader('Content-Type', 'application/pdf');
@@ -3667,18 +3713,27 @@ app.get('/api/dashboard', authMiddleware, (req, res) => {
   });
 });
 
-app.get('/api/reports/services', authMiddleware, (req, res) => {
+// Un solo constructor de filtros para la tabla y para el CSV: así el archivo
+// exportado siempre coincide con lo que el usuario está viendo en pantalla.
+function buildServiceReportFilter(req) {
   const { serviceType, clientId, technicianId, status, from, to } = req.query;
-  let where = [];
-  let params = [];
+  const where = [];
+  const params = [];
 
   if (serviceType && serviceType !== 'all') { where.push('b.service_type = ?'); params.push(serviceType); }
   if (clientId && clientId !== 'all') { where.push('b.client_id = ?'); params.push(clientId); }
   if (status && status !== 'all') { where.push('b.status = ?'); params.push(status); }
   if (from) { where.push('b.created_at >= ?'); params.push(from); }
-  if (to) { where.push('b.created_at <= ?'); params.push(to); }
+  if (to) {
+    where.push('b.created_at <= ?');
+    params.push(String(to).length === 10 ? `${to}T23:59:59.999Z` : to);
+  }
 
-  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  return { whereClause: where.length ? 'WHERE ' + where.join(' AND ') : '', params };
+}
+
+app.get('/api/reports/services', authMiddleware, (req, res) => {
+  const { whereClause, params } = buildServiceReportFilter(req);
   const rows = db.prepare(`
     SELECT b.*, c.name as client_name, s.name as service_name,
            (SELECT COUNT(*) FROM work_orders wo WHERE wo.budget_id = b.id) as order_count
@@ -3693,19 +3748,29 @@ app.get('/api/reports/services', authMiddleware, (req, res) => {
 });
 
 app.get('/api/reports/services/export', authMiddleware, (req, res) => {
+  const { whereClause, params } = buildServiceReportFilter(req);
   const rows = db.prepare(`
     SELECT b.number, b.service_type, b.description, b.total, b.status, b.created_at,
            c.name as client_name, c.phone as client_phone
     FROM budgets b
     LEFT JOIN clients c ON c.id = b.client_id
+    ${whereClause}
     ORDER BY b.id DESC
-  `).all();
+  `).all(...params);
 
   const header = ['Número', 'Servicio', 'Cliente', 'Teléfono', 'Descripción', 'Total Bs', 'Estado', 'Fecha'];
   const lines = [header.join(',')];
+  // Excel interpreta celdas que empiezan con =, +, - o @ como fórmulas.
+  const esc = (v) => {
+    let s = String(v === null || v === undefined ? '' : v).replace(/"/g, '""');
+    if (/^[=+\-@]/.test(s)) s = `'${s}`;
+    return `"${s}"`;
+  };
   rows.forEach(r => {
-    const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
-    lines.push([esc(r.number), esc(r.service_type), esc(r.client_name), esc(r.client_phone), esc(r.description), r.total, esc(r.status), esc(r.created_at)].join(','));
+    lines.push([
+      esc(r.number), esc(r.service_type), esc(r.client_name), esc(r.client_phone),
+      esc(r.description), esc(Number(r.total || 0).toFixed(2)), esc(r.status), esc(r.created_at)
+    ].join(','));
   });
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

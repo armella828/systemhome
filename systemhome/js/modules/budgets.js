@@ -1035,7 +1035,7 @@ const BudgetsModule = {
             <label>Técnico Asignado</label>
             <select class="form-control" id="orderTechnician">
               <option value="">Sin asignar</option>
-              ${technicians.filter(t => t.active).map(t => `<option value="${t.id}">${this.escapeHtml(t.name)}</option>`).join('')}
+              ${technicians.filter(t => t.active).map(t => `<option value="${t.id}">${this.escapeHtml(t.name)}${t.username ? ` · ${this.escapeHtml(t.username)}` : ' · SIN ACCESO'}${t.specialty ? ` · ${this.escapeHtml(t.specialty)}` : ''}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">

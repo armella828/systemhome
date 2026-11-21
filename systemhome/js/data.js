@@ -655,16 +655,27 @@ const DB = {
     return result?.report || [];
   },
 
-  exportServiceReport(filters = {}) {
+  async exportServiceReport(filters = {}) {
     const token = this._getToken();
-    let query = [];
-    if (filters.serviceType) query.push(`serviceType=${encodeURIComponent(filters.serviceType)}`);
-    if (filters.clientId) query.push(`clientId=${encodeURIComponent(filters.clientId)}`);
-    if (filters.status) query.push(`status=${encodeURIComponent(filters.status)}`);
-    if (filters.from) query.push(`from=${encodeURIComponent(filters.from)}`);
-    if (filters.to) query.push(`to=${encodeURIComponent(filters.to)}`);
-    const qStr = query.length ? '?' + query.join('&') : '';
-    window.open(`${this._baseUrl}/reports/services/export${qStr}?token=${encodeURIComponent(token || '')}`, '_blank');
+    const params = new URLSearchParams();
+    ['serviceType', 'clientId', 'technicianId', 'status', 'from', 'to'].forEach(key => {
+      if (filters[key]) params.set(key, String(filters[key]));
+    });
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const resp = await fetch(`${this._baseUrl}/reports/services/export?${params.toString()}`, { headers });
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.json()).error || ''; } catch (e) { /* cuerpo no JSON */ }
+      throw new Error(detail || `No se pudo exportar el reporte (HTTP ${resp.status})`);
+    }
+    const blob = await resp.blob();
+    if (blob.size < 20) throw new Error('El archivo exportado está vacío');
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : 'reporte-servicios.csv';
+    this._downloadBlob(blob, filename);
+    return { filename, bytes: blob.size };
   },
 
   // --- Auditoría y Notificaciones ---
