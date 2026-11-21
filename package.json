@@ -18,7 +18,8 @@
     "test:catalog": "node tests/catalog-pdf.test.js",
     "test:reports": "node tests/reports-export.test.js",
     "test:tech-profiles": "node tests/technician-profiles.test.js",
-    "test:all": "npm run test && npm run test:api && npm run test:no-delete && npm run test:pdf && npm run test:invoice && npm run test:catalog && npm run test:reports && npm run test:tech-profiles",
+    "test:notifications": "node tests/notifications-permissions.test.js",
+    "test:all": "npm run test && npm run test:api && npm run test:no-delete && npm run test:pdf && npm run test:invoice && npm run test:catalog && npm run test:reports && npm run test:tech-profiles && npm run test:notifications",
     "start:py": "python backend/server.py"
   },
   "dependencies": {

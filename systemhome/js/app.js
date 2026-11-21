@@ -336,7 +336,7 @@ const App = {
     const allowedViews = {
       admin: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'workorders', 'inventory', 'maintenances', 'alerts', 'intelligence', 'reports', 'audit', 'backup', 'users', 'technicians', 'settings', 'notifications'],
       vendedor: ['dashboard', 'clients', 'requests', 'budgets', 'sales', 'warranties', 'inventory', 'reports', 'settings', 'notifications'],
-      tecnico: ['workorders', 'maintenances', 'requests', 'alerts', 'notifications', 'settings']
+      tecnico: ['workorders', 'maintenances', 'alerts', 'notifications', 'settings']
     };
 
     const allowed = allowedViews[role] || allowedViews.admin;
@@ -970,6 +970,17 @@ const App = {
     return div.innerHTML;
   },
 
+  // La configuración de marca (logo, QR e iconos) es exclusiva del administrador.
+  isAdminUser() {
+    return ((Auth.getCurrentUser()?.role || '').toLowerCase() === 'admin');
+  },
+
+  requireAdminSettings(action) {
+    if (this.isAdminUser()) return true;
+    App.showNotification(`Solo el administrador puede ${action}`, 'warning');
+    return false;
+  },
+
   renderSettings(container) {
     const user = Auth.getCurrentUser();
     const qrValue = App.getQRCode();
@@ -1042,6 +1053,7 @@ const App = {
         </div>
         ` : ''}
 
+        ${isAdmin ? `
         <div class="card">
           <div class="card-header">
             <h3>📱 QR de Cobranzas</h3>
@@ -1075,6 +1087,7 @@ const App = {
             <button class="btn btn-secondary" onclick="App.resetPortalIcons()">↩️ Restaurar originales</button>
           </div>
         </div>
+        ` : ''}
       </div>
     `;
     this.loadPortalIcons();
@@ -1160,6 +1173,7 @@ const App = {
   },
 
   async onPortalIconSelected(event, key) {
+    if (!this.requireAdminSettings('configurar los iconos del portal')) return;
     const input = event.target;
     const file = input?.files?.[0];
     if (!file) return;
@@ -1185,12 +1199,14 @@ const App = {
   },
 
   removePortalIcon(key) {
+    if (!this.requireAdminSettings('configurar los iconos del portal')) return;
     delete App.portalIcons[key];
     this.updatePortalIconPreview(key, '');
     App.showNotification(`Icono de ${this.PORTAL_ICON_LABELS[key] || key} restaurado al SVG original. No olvide guardar.`, 'info');
   },
 
   async savePortalIcons() {
+    if (!this.requireAdminSettings('guardar los iconos del portal')) return;
     const icons = {};
     Object.keys(this.PORTAL_ICON_LABELS).forEach(key => {
       const value = App.portalIcons[key];
@@ -1208,6 +1224,7 @@ const App = {
   },
 
   async resetPortalIcons() {
+    if (!this.requireAdminSettings('restaurar los iconos del portal')) return;
     try {
       const result = await DB.saveSetting('portal_icons', {});
       if (!result || result.error) throw new Error(result?.error || 'No se pudo restaurar');
@@ -1221,6 +1238,7 @@ const App = {
   },
 
   handleQRCodeUpload(event) {
+    if (!this.requireAdminSettings('configurar el QR de cobranzas')) return;
     const file = event.target.files?.[0];
     if (!file) return;
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
@@ -1244,6 +1262,7 @@ const App = {
   },
 
   async updateQRCode() {
+    if (!this.requireAdminSettings('guardar el QR de cobranzas')) return false;
     const qrValue = document.getElementById('qrCodeUrl')?.value.trim();
     if (!qrValue || !/^data:image\/(png|jpeg|webp);base64,/i.test(qrValue)) {
       App.showNotification('Seleccione una imagen de QR desde su equipo antes de guardar', 'warning');
@@ -1337,6 +1356,7 @@ const App = {
   },
 
   handleLogoUpload(event) {
+    if (!this.requireAdminSettings('cambiar el logo de la empresa')) return;
     const file = event.target.files?.[0];
     if (!file) return;
     if (!/^image\/(png|jpeg)$/i.test(file.type)) {
@@ -1365,6 +1385,7 @@ const App = {
   },
 
   async resetCompanyLogo() {
+    if (!this.requireAdminSettings('restaurar el logo de la empresa')) return;
     localStorage.removeItem('sh_logo');
     App.loadSettings();
     const preview = document.getElementById('companyLogoPreview');

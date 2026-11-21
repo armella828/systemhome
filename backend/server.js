@@ -230,6 +230,37 @@ function notifyByEmail(roleNames, subject, buildForRole) {
   });
 }
 
+function htmlEscape(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+// Usuarios vinculados a un cliente: tanto por users.client_id como por el
+// creador de la ficha. Así la notificación llega aunque el cliente se haya
+// registrado antes de existir el vínculo.
+function getUserIdsForClient(clientId) {
+  if (clientId == null) return [];
+  try {
+    return db.prepare(`
+      SELECT DISTINCT u.id FROM users u
+      LEFT JOIN clients c ON c.id = ?
+      WHERE u.active = 1 AND (u.client_id = ? OR u.id = c.created_by_user_id)
+    `).all(clientId, clientId).map(r => r.id);
+  } catch (e) {
+    console.error('getUserIdsForClient error:', e.message);
+    return [];
+  }
+}
+
+function notifyClient(clientId, type, title, message, data = null) {
+  getUserIdsForClient(clientId).forEach(userId => notify(userId, type, title, message, data));
+}
+
+function notifyAdminsByEmail(subject, html, text) {
+  notifyByEmail(['admin'], subject, () => Promise.resolve({ html, text }));
+}
+
 function publishChange(entity, action, data = {}, filter = {}) {
   if (data.clientId != null && !filter.clientIds) {
     filter = { ...filter, clientIds: [data.clientId] };
@@ -1458,6 +1489,18 @@ function updateWarrantyStatuses() {
 // ============================================================
 app.get('/api/health', (req, res) => res.json({ ok: true, message: 'SYSTEMHOME API operativa y segura', version: '2.0.0' }));
 
+// Diagnóstico sin secretos: solo dice SI está configurado el correo y a qué
+// direcciones de administrador llegarían las notificaciones.
+app.get('/api/system/mail-status', authMiddleware, requireRole(['admin']), (req, res) => {
+  res.json({
+    configured: mailer.isConfigured(),
+    provider: process.env.BREVO_API_KEY ? 'brevo' : (process.env.SMTP_HOST ? 'smtp' : 'none'),
+    from: process.env.MAIL_FROM || process.env.SMTP_USER || null,
+    appUrl: process.env.APP_URL || process.env.FRONTEND_URL || null,
+    adminEmails: getRoleEmails(['admin']).map(x => x.email)
+  });
+});
+
 app.get('/api/auth/check-username', (req, res) => {
   const username = (req.query.username || '').trim();
   const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username);
@@ -2106,13 +2149,14 @@ app.post('/api/requests', authMiddleware, (req, res) => {
   const formattedRequest = formatRequest(requestRow);
   const displayClient = clientName || requestRow.client_name || req.user.name || req.user.username || 'Cliente';
   audit(req, 'solicitud_creada', 'requests', 'request', requestRow.id, null, { number, service: service.name, lat: latNum, lng: lngNum });
+  // Las solicitudes son competencia exclusiva de administración: aviso en el
+  // panel y correo al administrador. Nunca se difunden a técnicos.
   notifyAdmins('nueva_solicitud', '📝 Nueva Solicitud de Cotización', `${displayClient} solicitó cotización (${service.name}) [${number}].`, { requestId: requestRow.id, budgetId: budgetRow?.id || null });
-  notifyRole('tecnico', 'nueva_solicitud', '📝 Nueva Solicitud - SYSTEMHOME', `${displayClient} solicitó ${service.name} [${number}].`, { requestId: requestRow.id, budgetId: budgetRow?.id || null });
   publishChange('requests', 'created', { id: requestRow.id, number, clientId });
   if (budgetRow) publishChange('budgets', 'created', { id: budgetRow.id, number: budgetRow.number, source: 'client', clientId });
 
-  notifyByEmail(['admin', 'tecnico'], `SYSTEMHOME - Nueva solicitud ${number}`, (email, roleName) =>
-    Promise.resolve(mailer.sendNewRequestNotification(email, roleName === 'admin' ? 'Administrador' : 'Técnico', formattedRequest)));
+  notifyByEmail(['admin'], `SYSTEMHOME - Nueva solicitud ${number}`, (email) =>
+    Promise.resolve(mailer.sendNewRequestNotification(email, 'Administrador', formattedRequest)));
 
   res.status(201).json({
     request: formattedRequest,
@@ -2132,8 +2176,13 @@ app.get('/api/requests/:id', authMiddleware, (req, res) => {
   `).get(requestId);
   if (!row) return res.status(404).json({ error: 'Solicitud no encontrada' });
 
-  // Aislamiento para clientes
-  if (req.user.role === 'cliente' && row.user_id !== req.user.id && row.client_id !== getOrCreateClientIdForUser(req.user)) {
+  // Solicitudes: solo administración (y el cliente dueño de la suya).
+  const role = (req.user.role || '').toLowerCase();
+  if (role === 'cliente') {
+    if (row.user_id !== req.user.id && row.client_id !== getOrCreateClientIdForUser(req.user)) {
+      return res.status(403).json({ error: 'No autorizado para consultar esta solicitud' });
+    }
+  } else if (!['admin', 'vendedor'].includes(role)) {
     return res.status(403).json({ error: 'No autorizado para consultar esta solicitud' });
   }
 
@@ -2169,6 +2218,9 @@ app.post('/api/requests/:id/files', authMiddleware, async (req, res) => {
     const requestId = Number(req.params.id);
     const requestRow = db.prepare('SELECT * FROM requests WHERE id = ?').get(requestId);
     if (!requestRow) return res.status(404).json({ error: 'Solicitud no encontrada' });
+    if ((req.user.role || '').toLowerCase() === 'tecnico') {
+      return res.status(403).json({ error: 'No autorizado para adjuntar archivos a solicitudes' });
+    }
     if (!ensureClientAccess(req, res, requestRow.client_id)) return;
 
     const { filename, mimeType, data } = req.body;
@@ -2378,14 +2430,9 @@ app.post('/api/budgets/:id/send', authMiddleware, requireRole(['admin', 'vendedo
     db.prepare("UPDATE requests SET status = 'cotizacion_enviada' WHERE id = ?").run(budget.request_id);
   }
 
-  // Notificar al cliente
-  if (budget.client_id) {
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(budget.client_id);
-    const clientUser = client ? db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR phone = ?').get(client.email, client.phone) : null;
-    if (clientUser) {
-      notify(clientUser.id, 'cotizacion_enviada', '📋 Nueva Cotización Disponible', `Tienes disponible la cotización ${budget.number} por Bs. ${Number(budget.total).toLocaleString('es-PY')}.`, { budgetId });
-    }
-  }
+  // Notificar al cliente por su vínculo real (no solo por email/teléfono).
+  notifyClient(budget.client_id, 'cotizacion_enviada', '📋 Nueva Cotización Disponible',
+    `Tienes disponible la cotización ${budget.number} por Bs. ${Number(budget.total).toLocaleString('es-PY')}.`, { budgetId });
 
   const updated = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
   audit(req, 'cotizacion_enviada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'enviado' });
@@ -2431,6 +2478,8 @@ app.post('/api/budgets/:id/email', authMiddleware, requireRole(['admin', 'vended
       if (budget.request_id) {
         db.prepare("UPDATE requests SET status = 'cotizacion_enviada' WHERE id = ?").run(budget.request_id);
       }
+      notifyClient(budget.client_id, 'cotizacion_enviada', '📋 Cotización enviada a su correo',
+        `La cotización ${budget.number} fue enviada a ${recipient}. Ya puede revisarla y dar su visto bueno.`, { budgetId });
       publishChange('budgets', 'sent', { id: budgetId, number: budget.number, status: 'enviado', via: 'email' });
     }
     audit(req, 'cotizacion_enviada_correo', 'budgets', 'budget', budgetId, null, { to: recipient, sent: result.sent });
@@ -2486,7 +2535,21 @@ app.post('/api/budgets/:id/approve', authMiddleware, (req, res) => {
 
   audit(req, 'cotizacion_aprobada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'aprobado', orderNumber });
   notifyAdmins('cotizacion_aprobada', '✅ Cotización Aprobada', `El cliente aprobó la cotización ${budget.number}. Se ha generado la Orden ${orderNumber}.`, { budgetId, orderId });
-  notifyRole('tecnico', 'orden_asignada', '🔧 Nueva Orden de Trabajo', `Orden ${orderNumber} generada desde la cotización ${budget.number}.`, { orderId, budgetId });
+  notifyAdminsByEmail(`SYSTEMHOME - Cotización ${budget.number} aprobada`,
+    `<p>El cliente aprobó la cotización <strong>${htmlEscape(budget.number)}</strong> y se generó la orden <strong>${htmlEscape(orderNumber)}</strong>.</p>`,
+    `El cliente aprobó la cotización ${budget.number}. Se generó la Orden ${orderNumber}.`);
+
+  // Solo el técnico asignado a esta orden recibe el aviso; nunca un broadcast.
+  if (techId) {
+    const assignedTech = db.prepare('SELECT name, user_id FROM technicians WHERE id = ?').get(techId);
+    if (assignedTech?.user_id) {
+      notify(assignedTech.user_id, 'orden_asignada', '🔧 Nueva Orden de Trabajo',
+        `Se te asignó la orden ${orderNumber} desde la cotización ${budget.number}.`, { orderId, budgetId });
+    }
+  }
+  notifyClient(budget.client_id, 'cotizacion_aprobada', '✅ Cotización aprobada',
+    `Su cotización ${budget.number} fue aprobada. Se generó la orden de trabajo ${orderNumber}.`, { budgetId, orderId });
+
   publishChange('budgets', 'approved', { id: budgetId, number: budget.number, status: 'aprobado', clientId: budget.client_id });
   publishChange('workorders', 'created', { id: orderId, number: orderNumber, clientId: budget.client_id });
 
@@ -2516,6 +2579,9 @@ app.post('/api/budgets/:id/reject', authMiddleware, (req, res) => {
 
   audit(req, 'cotizacion_rechazada', 'budgets', 'budget', budgetId, { status: budget.status }, { status: 'rechazado', reason });
   notifyAdmins('cotizacion_rechazada', '❌ Cotización Rechazada', `La cotización ${budget.number} fue rechazada por el cliente.${reason ? ' Motivo: ' + reason : ''}`, { budgetId });
+  notifyAdminsByEmail(`SYSTEMHOME - Cotización ${budget.number} rechazada`,
+    `<p>La cotización <strong>${htmlEscape(budget.number)}</strong> fue rechazada por el cliente.${reason ? ` Motivo: ${htmlEscape(reason)}` : ''}</p>`,
+    `La cotización ${budget.number} fue rechazada por el cliente.${reason ? ' Motivo: ' + reason : ''}`);
   publishChange('budgets', 'rejected', { id: budgetId, number: budget.number, status: 'rechazado', clientId: budget.client_id });
 
   const updatedBudget = db.prepare(`SELECT b.*, c.name as client_name, s.name as service_name FROM budgets b LEFT JOIN clients c ON c.id = b.client_id LEFT JOIN services s ON s.id = b.service_id WHERE b.id = ?`).get(budgetId);
@@ -2915,11 +2981,8 @@ app.post('/api/workorders/:id/close', authMiddleware, requireRole(['admin']), (r
     db.prepare('INSERT INTO client_history (client_id, entry_type, description, related_type, related_id, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(order.client_id, 'orden_cerrada', `Orden de trabajo ${order.number} concluida y cerrada exitosamente`, 'work_order', orderId, now, req.user.id);
 
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(order.client_id);
-    const clientUser = client ? db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR phone = ?').get(client.email, client.phone) : null;
-    if (clientUser) {
-      notify(clientUser.id, 'orden_cerrada', '🎉 Servicio Finalizado con Éxito', `Su orden de trabajo ${order.number} ha sido completada y cerrada. ¡Gracias por confiar en SYSTEMHOME!`, { orderId });
-    }
+    notifyClient(order.client_id, 'orden_cerrada', '🎉 Servicio Finalizado con Éxito',
+      `Su orden de trabajo ${order.number} ha sido completada y cerrada. ¡Gracias por confiar en SYSTEMHOME!`, { orderId });
   }
 
   audit(req, 'orden_cerrada_admin', 'workorders', 'work_order', orderId, { status: order.status }, { status: 'cerrada', materialsDeducted: matsToDeduct.length });
