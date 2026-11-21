@@ -1009,7 +1009,7 @@ const App = {
             <p><strong>Empresa:</strong> SYSTEMHOME Security</p>
             <p><strong>Rubros:</strong> Cámaras, Alarmas, Climatización, Cercas, Video Portero, Redes</p>
             <p><strong>WhatsApp de Atención:</strong> +591 64595762</p>
-            <p><strong>Ubicación Central:</strong> Asunción, Paraguay</p>
+            <p><strong>Ubicación Central:</strong> Yacuiba, Bolivia</p>
           </div>
         </div>
 

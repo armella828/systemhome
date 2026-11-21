@@ -489,8 +489,7 @@ function renderBudgetPdf(doc, budget, client) {
     }
   }
   doc.fontSize(16).fillColor('#0b1f3a').text('SYSTEMHOME SECURITY', 138, 24, { width: pageWidth - 178, align: 'left' });
-  doc.fontSize(8.5).fillColor('#475569').text('Seguridad Electronica · Climatizacion · Redes & Telecomunicaciones', 138, 50, { width: pageWidth - 178, align: 'left' });
-  doc.fontSize(8).fillColor('#64748b').text('WhatsApp: +591 64595762 · Asuncion / Central', 138, 68, { width: pageWidth - 178, align: 'left' });
+  doc.fontSize(9).fillColor('#475569').text('Yacuiba, Bolivia', 138, 50, { width: pageWidth - 178, align: 'left' });
   doc.moveTo(40, 100).lineTo(pageWidth - 40, 100).strokeColor('#0e7490').lineWidth(2).stroke();
   doc.y = 116;
 
@@ -588,7 +587,7 @@ function renderBudgetPdf(doc, budget, client) {
   doc.moveDown(1.2);
   doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#e2e8f0').stroke();
   doc.moveDown(0.4);
-  doc.fontSize(8).fillColor('#64748b').text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Asuncion, Paraguay', { align: 'center' });
+  doc.fontSize(8).fillColor('#64748b').text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Yacuiba, Bolivia', { align: 'center' });
   doc.fontSize(7.5).fillColor('#94a3b8').text('Documento generado electronicamente por SYSTEMHOME · Gracias por su confianza.', { align: 'center' });
   doc.end();
 }
@@ -627,10 +626,8 @@ function renderBudgetPdfProfessional(doc, budget, client) {
     const textW = right - textX;
     doc.font('Helvetica-Bold').fontSize(16).fillColor('#0b1f3a')
       .text('SYSTEMHOME SECURITY', textX, 24, { width: textW, align: 'left' });
-    doc.font('Helvetica').fontSize(8.5).fillColor('#475569')
-      .text('Seguridad Electrónica · Climatización · Redes y Telecomunicaciones', textX, 50, { width: textW, align: 'left' });
-    doc.fontSize(8).fillColor('#64748b')
-      .text('WhatsApp: +591 64595762 · Asunción, Paraguay', textX, 68, { width: textW, align: 'left' });
+    doc.font('Helvetica').fontSize(9).fillColor('#475569')
+      .text('Yacuiba, Bolivia', textX, 50, { width: textW, align: 'left' });
 
     doc.moveTo(left, bandH - 4).lineTo(right, bandH - 4).strokeColor('#0e7490').lineWidth(2).stroke();
     doc.fillColor('#0b1f3a').font('Helvetica');
@@ -639,7 +636,7 @@ function renderBudgetPdfProfessional(doc, budget, client) {
 
   function drawFooter(pageNumber) {
     doc.font('Helvetica').fontSize(7.5).fillColor('#64748b')
-      .text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Asunción, Paraguay',
+      .text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Yacuiba, Bolivia',
         left, doc.page.height - 72, { width: contentW, align: 'center' });
     doc.text(`Página ${pageNumber} · COTIZACIÓN ${budget.number}`,
         left, doc.page.height - 58, { width: contentW, align: 'center' });
@@ -811,6 +808,195 @@ function generateBudgetPdfBuffer(budget, client) {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
       renderBudgetPdfProfessional(doc, budget, client);
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// Renderiza una factura de cobro con el mismo patrón seguro que las
+// cotizaciones: encabezado con logo en esquina, alturas calculadas con
+// heightOfString, columnas con ancho y saltos de página controlados.
+// Las posiciones se derivan siempre de doc.y, nunca de doc.y +/- offsets
+// after text() con coordenadas explícitas (causa de texto sobrepuesto).
+function renderInvoicePdf(doc, inv) {
+  const pageW = doc.page.width;
+  const left = 40;
+  const right = pageW - 40;
+  const contentW = right - left;
+  const bottomLimit = doc.page.height - 92;
+  const logoBuffer = getCompanyLogoBuffer();
+  const invoiceNumber = inv.invoice_number || 'S/N';
+
+  function drawHeader() {
+    const bandH = 104;
+    const logoW = 84;
+    const logoH = 66;
+    doc.rect(0, 0, pageW, bandH).fill('#f8fafc');
+    if (logoBuffer) {
+      try {
+        doc.save();
+        doc.roundedRect(left, 14, logoW, logoH, 4).fill('#ffffff');
+        doc.image(logoBuffer, left + 4, 18, {
+          fit: [logoW - 8, logoH - 8], align: 'center', valign: 'center'
+        });
+        doc.restore();
+      } catch (e) { console.error('PDF logo error:', e.message); }
+    }
+    const textX = left + logoW + 14;
+    const textW = right - textX;
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#0b1f3a')
+      .text('SYSTEMHOME S.A.', textX, 24, { width: textW, align: 'left' });
+    doc.font('Helvetica').fontSize(9).fillColor('#475569')
+      .text('Yacuiba, Bolivia', textX, 50, { width: textW, align: 'left' });
+    doc.moveTo(left, bandH - 4).lineTo(right, bandH - 4).strokeColor('#0e7490').lineWidth(2).stroke();
+    doc.fillColor('#0b1f3a').font('Helvetica');
+    doc.y = bandH + 12;
+  }
+
+  function drawFooter(pageNumber) {
+    doc.font('Helvetica').fontSize(7.5).fillColor('#64748b')
+      .text('SYSTEMHOME S.A. · WhatsApp +591 64595762 · Yacuiba, Bolivia',
+        left, doc.page.height - 72, { width: contentW, align: 'center' });
+    doc.text(`Página ${pageNumber} · FACTURA ${invoiceNumber}`,
+        left, doc.page.height - 58, { width: contentW, align: 'center' });
+  }
+
+  doc.on('pageAdded', () => {
+    const previous = doc.page.count - 2;
+    if (previous >= 0) {
+      doc.switchToPage(previous);
+      drawFooter(previous + 1);
+      doc.switchToPage(previous + 1);
+    }
+    drawHeader();
+  });
+
+  drawHeader();
+
+  const ensureSpace = (needed) => {
+    if (doc.y + needed > bottomLimit) doc.addPage();
+  };
+
+  // Título y metadatos
+  ensureSpace(60);
+  doc.font('Helvetica-Bold').fontSize(15).fillColor('#0b1f3a')
+    .text(`FACTURA / COMPROBANTE DE FACTURACIÓN ${invoiceNumber}`, left, doc.y, { width: contentW });
+  doc.font('Helvetica').fontSize(9).fillColor('#475569');
+  const emitted = inv.created_at ? new Date(inv.created_at).toLocaleString('es-PY') : '-';
+  doc.text(`Fecha de emisión: ${emitted}`, { width: contentW });
+  const paymentLabel = String(inv.payment_method || 'efectivo').toUpperCase();
+  doc.text(`Condición de pago: CONTADO (${paymentLabel})`, { width: contentW });
+  doc.moveDown(0.8);
+
+  // Datos fiscales del cliente: altura calculada, sin offsets manuales.
+  const directions = [
+    `Razón Social / Nombre: ${inv.client_name || 'Cliente'}`,
+    `RUC / CI: ${inv.client_ruc || 'Sin RUC'}`,
+    `Dirección: ${inv.client_address || 'Asunción'}`
+  ];
+  doc.fontSize(9);
+  const linesHeight = directions.reduce((sum, line) => sum + doc.heightOfString(line, { width: contentW - 20 }), 0);
+  const boxH = linesHeight + 26;
+  ensureSpace(boxH + 10);
+  const boxTop = doc.y;
+  doc.roundedRect(left, boxTop, contentW, boxH, 4).fillAndStroke('#f8fafc', '#e2e8f0');
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#0b1f3a')
+    .text('DATOS FISCALES DEL CLIENTE', left + 10, boxTop + 8, { width: contentW - 20 });
+  doc.font('Helvetica').fontSize(9).fillColor('#334155');
+  let ty = boxTop + 24;
+  directions.forEach(line => {
+    doc.text(line, left + 10, ty, { width: contentW - 20 });
+    ty += doc.heightOfString(line, { width: contentW - 20 }) + 2;
+  });
+  doc.y = boxTop + boxH + 12;
+
+  // Ítems
+  let items = [];
+  try { items = typeof inv.items_json === 'string' ? JSON.parse(inv.items_json || '[]') : (inv.items_json || []); } catch (e) { items = []; }
+
+  const cols = [
+    { key: 'qty', label: 'Cant.', x: left + 5, w: 40, align: 'right' },
+    { key: 'name', label: 'Descripción del Producto / Servicio', x: left + 50, w: 270, align: 'left' },
+    { key: 'price', label: 'P. Unit. (Bs.)', x: left + 330, w: 80, align: 'right' },
+    { key: 'subtotal', label: 'Total (Bs.)', x: left + 415, w: contentW - 420, align: 'right' }
+  ];
+
+  function drawTableHeader() {
+    ensureSpace(24);
+    const y = doc.y;
+    doc.rect(left, y, contentW, 20).fill('#1e293b');
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
+    cols.forEach(c => doc.text(c.label, c.x, y + 6, { width: c.w, align: c.align }));
+    doc.y = y + 26;
+  }
+
+  ensureSpace(50);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827')
+    .text('DETALLE DE PRODUCTOS Y SERVICIOS', left, doc.y, { width: contentW });
+  doc.moveDown(0.3);
+  drawTableHeader();
+
+  let computedSubtotal = 0;
+  items.forEach((it, index) => {
+    doc.font('Helvetica').fontSize(8.5);
+    const qty = Number(it.quantity || it.qty || 1);
+    const price = Number(it.unitPrice || it.price || 0);
+    const subtotal = Number(it.subtotal != null ? it.subtotal : (qty * price));
+    computedSubtotal += subtotal;
+    const descH = doc.heightOfString(String(it.name || it.concept || 'Producto'), { width: cols[1].w });
+    const rowH = Math.max(descH, 10) + 10;
+    ensureSpace(rowH + 4);
+    const y = doc.y;
+    doc.rect(left, y, contentW, rowH).fill(index % 2 === 0 ? '#f8fafc' : '#ffffff');
+    doc.font('Helvetica').fontSize(8.5).fillColor('#1e293b');
+    doc.text(String(qty), cols[0].x, y + 5, { width: cols[0].w, align: cols[0].align });
+    doc.text(String(it.name || it.concept || 'Producto'), cols[1].x, y + 5, { width: cols[1].w, align: cols[1].align });
+    doc.text(money(price), cols[2].x, y + 5, { width: cols[2].w, align: cols[2].align });
+    doc.text(money(subtotal), cols[3].x, y + 5, { width: cols[3].w, align: cols[3].align });
+    doc.y = y + rowH + 2;
+  });
+
+  // Totales
+  const total = Number(inv.total != null ? inv.total : computedSubtotal);
+  ensureSpace(90);
+  doc.moveTo(left + 300, doc.y).lineTo(right, doc.y).strokeColor('#cbd5e1').stroke();
+  doc.moveDown(0.4);
+  const totalX = left + 300;
+  const totalW = contentW - 305;
+  doc.font('Helvetica').fontSize(9).fillColor('#334155');
+  doc.text(`Subtotal: Bs. ${money(computedSubtotal)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  const iva = Math.round(total / 11);
+  doc.text(`IVA incluido 10% (estimado): Bs. ${money(iva)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  doc.moveDown(0.4);
+  doc.font('Helvetica-Bold').fontSize(13).fillColor('#0e7490')
+    .text(`TOTAL LIQUIDACIÓN: Bs. ${money(total)}`, totalX, doc.y, { width: totalW, align: 'right' });
+  doc.moveDown(0.8);
+
+  doc.font('Helvetica').fontSize(8).fillColor('#64748b')
+    .text('Comprobante preparado para integración de Facturación Electrónica SIFEN · SYSTEMHOME', { width: contentW });
+
+  doc.moveDown(1.4);
+  ensureSpace(50);
+  doc.moveTo(left, doc.y).lineTo(left + 220, doc.y).strokeColor('#94a3b8').stroke();
+  const signY = doc.y;
+  doc.fontSize(8).fillColor('#475569')
+    .text('Firma del cliente / Conforme', left, signY + 6, { width: 220, align: 'center' })
+    .text('SystemHome · Responsable de cobro', left + 295, signY + 6, { width: right - (left + 295), align: 'center' });
+
+  drawFooter(doc.page.count);
+}
+
+function generateInvoicePdfBuffer(inv) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4', autoFirstPage: true, compress: false });
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      renderInvoicePdf(doc, inv);
       doc.end();
     } catch (err) {
       reject(err);
@@ -2530,6 +2716,7 @@ app.get('/api/workorders/:id/export', authMiddleware, (req, res) => {
   doc.pipe(res);
 
   doc.fontSize(22).fillColor('#1a56db').text('SYSTEMHOME SECURITY', { align: 'center' });
+  doc.fontSize(9).fillColor('#64748b').text('Yacuiba, Bolivia', { align: 'center' });
   doc.fontSize(10).fillColor('#4b5563').text('Comprobante Oficial de Orden de Trabajo y Servicio Técnico', { align: 'center' });
   doc.moveDown(0.5);
   doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#1a56db').lineWidth(2).stroke();
@@ -2540,14 +2727,25 @@ app.get('/api/workorders/:id/export', authMiddleware, (req, res) => {
   doc.text(`Fecha Programada: ${order.scheduled_date || '-'}   |   Estado: ${order.status.toUpperCase()}   |   Prioridad: ${order.priority.toUpperCase()}`);
   doc.moveDown();
 
-  // Cliente y Técnico
-  doc.rect(40, doc.y, 515, 60).fillAndStroke('#f8fafc', '#e2e8f0');
-  doc.fillColor('#1e293b').fontSize(10).text('DATOS DE LA ORDEN:', 50, doc.y - 52);
+  // Cliente y Técnico: altura calculada, sin offsets manuales sobre doc.y.
+  const orderLines = [
+    `Cliente: ${order.client_name || 'N/A'} (RUC: ${order.client_ruc || 'S/N'})  |  Tel: ${order.client_phone || '-'}`,
+    `Técnico Responsable: ${order.technician_name || 'Sin Asignar'}  |  Tel: ${order.technician_phone || '-'}`,
+    `Ubicación GPS: ${order.latitude || '-'}, ${order.longitude || '-'}  |  Dirección: ${order.address || order.client_address || 'En sitio'}`
+  ];
+  doc.fontSize(8.5);
+  const orderLinesH = orderLines.reduce((sum, l) => sum + doc.heightOfString(l, { width: 495 }), 0);
+  const orderBoxH = orderLinesH + 26;
+  const orderBoxTop = doc.y;
+  doc.rect(40, orderBoxTop, 515, orderBoxH).fillAndStroke('#f8fafc', '#e2e8f0');
+  doc.fillColor('#1e293b').fontSize(10).text('DATOS DE LA ORDEN:', 50, orderBoxTop + 8);
   doc.fontSize(8.5).fillColor('#334155');
-  doc.text(`Cliente: ${order.client_name || 'N/A'} (RUC: ${order.client_ruc || 'S/N'})  |  Tel: ${order.client_phone || '-'}`, 50, doc.y + 3);
-  doc.text(`Técnico Responsable: ${order.technician_name || 'Sin Asignar'}  |  Tel: ${order.technician_phone || '-'}`, 50, doc.y + 2);
-  doc.text(`Ubicación GPS: ${order.latitude || '-'}, ${order.longitude || '-'}  |  Dirección: ${order.address || order.client_address || 'En sitio'}`, 50, doc.y + 2);
-  doc.moveDown(2);
+  let orderLineY = orderBoxTop + 24;
+  orderLines.forEach(l => {
+    doc.text(l, 50, orderLineY, { width: 495 });
+    orderLineY += doc.heightOfString(l, { width: 495 }) + 2;
+  });
+  doc.y = orderBoxTop + orderBoxH + 12;
 
   doc.fontSize(11).fillColor('#1a56db').text(`SERVICIO: ${order.service_name || order.service_type || 'General'}`);
   doc.fontSize(9).fillColor('#334155').text(`Descripción Inicial: ${order.description || '-'}`);
@@ -2965,7 +3163,7 @@ app.get('/api/invoices', authMiddleware, (req, res) => {
   res.json({ invoices: rows.map(formatInvoice) });
 });
 
-app.get('/api/invoices/:id/pdf', authMiddleware, (req, res) => {
+app.get('/api/invoices/:id/pdf', authMiddleware, async (req, res) => {
   const invoiceId = Number(req.params.id);
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
   if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
@@ -2975,67 +3173,16 @@ app.get('/api/invoices/:id/pdf', authMiddleware, (req, res) => {
     if (inv.client_id !== clientId) return res.status(403).json({ error: 'Acceso denegado a esta factura' });
   }
 
-  const doc = new PDFDocument({ margin: 40, size: 'A4' });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename=factura-${inv.invoice_number}.pdf`);
-  doc.pipe(res);
-
-  doc.fontSize(22).fillColor('#1a56db').text('SYSTEMHOME S.A.', { align: 'center' });
-  doc.fontSize(9.5).fillColor('#4b5563').text('RUC: 80099887-1 · Timbrado Electrónico: 16548920', { align: 'center' });
-  doc.text('Seguridad Electrónica, Climatización y Telecomunicaciones', { align: 'center' });
-  doc.text('WhatsApp: +591 64595762 · Asunción, Paraguay', { align: 'center' });
-  doc.moveDown(0.5);
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#1a56db').lineWidth(2).stroke();
-  doc.moveDown();
-
-  doc.fontSize(14).fillColor('#111827').text(`COMPROBANTE DE FACTURACIÓN: ${inv.invoice_number}`, { align: 'left' });
-  doc.fontSize(9).fillColor('#6b7280').text(`Fecha de Emisión: ${new Date(inv.created_at).toLocaleString('es-PY')}   |   Condición: Contado (${(inv.payment_method || 'efectivo').toUpperCase()})`);
-  doc.moveDown();
-
-  doc.rect(40, doc.y, 515, 50).fillAndStroke('#f8fafc', '#e2e8f0');
-  doc.fillColor('#1e293b').fontSize(9.5).text('DATOS FISCALES DEL CLIENTE:', 50, doc.y - 42);
-  doc.fontSize(8.5).fillColor('#334155');
-  doc.text(`Razón Social / Nombre: ${inv.client_name}`, 50, doc.y + 3);
-  doc.text(`RUC / CI: ${inv.client_ruc || 'Sin RUC'}   |   Dirección: ${inv.client_address || 'Asunción'}`, 50, doc.y + 2);
-  doc.moveDown(1.8);
-
-  let items = [];
-  try { items = JSON.parse(inv.items_json || '[]'); } catch (e) { items = []; }
-
-  let currentY = doc.y;
-  doc.rect(40, currentY, 515, 18).fill('#1e293b');
-  doc.fillColor('#ffffff').fontSize(8.5);
-  doc.text('Cant.', 45, currentY + 4);
-  doc.text('Descripción del Producto / Servicio', 85, currentY + 4);
-  doc.text('P. Unitario', 380, currentY + 4);
-  doc.text('Valor Total', 470, currentY + 4);
-
-  currentY += 20;
-  items.forEach((it, idx) => {
-    const qty = Number(it.quantity || it.qty || 1);
-    const price = Number(it.unitPrice || it.price || 0);
-    const subtotal = Number(it.subtotal || (qty * price));
-
-    doc.rect(40, currentY, 515, 16).fill(idx % 2 === 0 ? '#f8fafc' : '#ffffff');
-    doc.fillColor('#1e293b').fontSize(8);
-    doc.text(String(qty), 45, currentY + 3);
-    doc.text(it.name || it.concept || 'Producto', 85, currentY + 3, { width: 280, ellipsis: true });
-    doc.text(price.toLocaleString('es-PY') + ' Bs', 380, currentY + 3);
-    doc.text(subtotal.toLocaleString('es-PY') + ' Bs', 470, currentY + 3);
-    currentY += 18;
-  });
-
-  doc.y = currentY + 10;
-  doc.moveTo(350, doc.y).lineTo(555, doc.y).strokeColor('#cbd5e1').stroke();
-  doc.moveDown(0.5);
-
-  doc.fontSize(12).fillColor('#1a56db').text(`TOTAL LIQUIDACIÓN: ${Number(inv.total).toLocaleString('es-PY')} Bs.`, 350, doc.y, { align: 'right' });
-  doc.moveDown(0.3);
-  doc.fontSize(8.5).fillColor('#64748b').text(`Liquidación IVA: Incluido 10% (${Math.round(inv.total / 11).toLocaleString('es-PY')} Bs)`, 350, doc.y, { align: 'right' });
-
-  doc.moveDown(3);
-  doc.fontSize(8).fillColor('#94a3b8').text('Comprobante preparado para integración de Facturación Electrónica SIFEN · SYSTEMHOME', { align: 'center' });
-  doc.end();
+  try {
+    const pdfBuffer = await generateInvoicePdfBuffer(inv);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename=factura-${inv.invoice_number}.pdf`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Error generando PDF de factura:', err);
+    res.status(500).json({ error: 'No se pudo generar el PDF de la factura: ' + (err.message || 'error interno') });
+  }
 });
 
 // ============================================================

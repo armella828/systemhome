@@ -77,7 +77,7 @@ function buildItems(count) {
       conditions: 'Pago al contado. Precios válidos por 15 días.',
       observations: 'Verificar superposición y cortes en todas las páginas.',
       estimatedTime: '5 días',
-      address: 'Asunción, Paraguay'
+      address: 'Yacuiba, Bolivia'
     }, token);
     ok(created.status === 201, `crear cotización QA de ${testCase.label}`);
     if (created.status !== 201) continue;

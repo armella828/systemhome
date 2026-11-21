@@ -530,7 +530,7 @@ const SalesModule = {
               <div style="display:flex;justify-content:space-between;border-bottom:2px solid #e2e8f0;padding-bottom:1rem;margin-bottom:1rem;">
                 <div>
                   <h4 style="margin:0 0 0.2rem 0;color:#1a56db;">SYSTEMHOME S.A.</h4>
-                  <div style="font-size:0.85rem;color:#64748b;">RUC: 80099887-1 · Timbrado: 16548920</div>
+                  <div style="font-size:0.85rem;color:#64748b;">Yacuiba, Bolivia</div>
                   <div style="font-size:0.85rem;color:#64748b;">WhatsApp: +591 64595762</div>
                 </div>
                 <div style="text-align:right;">
