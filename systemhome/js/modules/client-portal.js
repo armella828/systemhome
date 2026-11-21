@@ -267,24 +267,31 @@ const ClientPortal = {
 
         const catalog = DB.getCatalog();
 
+        // Los id deben coincidir con la columna category de inventory_items.
         const categories = [
-            { id: 'camara', label: '📷 Cámaras' },
-            { id: 'alarma', label: '🔔 Alarmas' },
+            { id: 'camaras', label: '📷 Cámaras' },
+            { id: 'alarmas', label: '🔔 Alarmas' },
+            { id: 'dvr_nvr', label: '💾 Grabadores' },
             { id: 'ac', label: '❄️ A/Acondicionado' },
-            { id: 'cerca', label: '⚡ Cercas' },
-            { id: 'video', label: '📺 Video Portero' },
-            { id: 'cable', label: '🔌 Cables' },
-            { id: 'accesorio', label: '🔧 Accesorios' },
-            { id: 'herramienta', label: '🛠️ Herramientas' },
+            { id: 'cercas', label: '⚡ Cercas' },
+            { id: 'videoporteros', label: '📺 Video Portero' },
+            { id: 'control_acceso', label: '🔐 Control de acceso' },
+            { id: 'redes', label: '🌐 Redes' },
+            { id: 'cableado', label: '🔌 Cableado' },
+            { id: 'electricidad', label: '💡 Electricidad' },
+            { id: 'accesorios', label: '🔧 Accesorios' },
             { id: 'otro', label: '📦 Otros' },
         ];
 
         const currentCat = this.currentCatalogFilter || 'all';
 
         container.innerHTML = `
-        <div class="catalog-header">
-            <h2>📦 Catálogo de Productos</h2>
-            <p>Explora nuestra amplia gama de productos para seguridad, confort y conectividad.</p>
+        <div class="catalog-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+            <div>
+                <h2>📦 Catálogo de Productos</h2>
+                <p>Explora nuestra amplia gama de productos para seguridad, confort y conectividad.</p>
+            </div>
+            <button class="btn btn-primary" onclick="ClientPortal.downloadCatalogPdf()" style="white-space:nowrap;">📄 Descargar PDF</button>
         </div>
 
         <div class="catalog-categories" id="catalogCategories">
@@ -308,6 +315,15 @@ const ClientPortal = {
         this.renderCatalog();
     },
 
+    async downloadCatalogPdf() {
+        try {
+            const result = await DB.fetchCatalogPdf(this.currentCatalogFilter || 'all', true);
+            window.App?.showToast?.(`Catálogo PDF descargado: ${result.filename}`, 'success');
+        } catch (err) {
+            window.App?.showToast?.(err.message || 'No se pudo descargar el catálogo en PDF', 'error');
+        }
+    },
+
     renderCatalogItems(catalog, filter) {
         let items = filter === 'all' ? catalog : catalog.filter(i => i.category === filter);
 
@@ -320,8 +336,10 @@ const ClientPortal = {
         }
 
         const categoryIcons = {
-            camara: '📷', alarma: '🔔', ac: '❄️', cerca: '⚡',
-            video: '📺', cable: '🔌', accesorio: '🔧', herramienta: '🛠️', otro: '📦'
+            camaras: '📷', alarmas: '🔔', dvr_nvr: '💾', ac: '❄️',
+            cercas: '⚡', videoporteros: '📺', control_acceso: '🔐',
+            redes: '🌐', cableado: '🔌', electricidad: '💡',
+            accesorios: '🔧', herramientas: '🛠️', otro: '📦'
         };
 
         return items.map(item => `
@@ -388,8 +406,10 @@ const ClientPortal = {
         const count = this.getCartCount();
 
         const categoryIcons = {
-            camara: '📷', alarma: '🔔', ac: '❄️', cerca: '⚡',
-            video: '📺', cable: '🔌', accesorio: '🔧', herramienta: '🛠️', otro: '📦'
+            camaras: '📷', alarmas: '🔔', dvr_nvr: '💾', ac: '❄️',
+            cercas: '⚡', videoporteros: '📺', control_acceso: '🔐',
+            redes: '🌐', cableado: '🔌', electricidad: '💡',
+            accesorios: '🔧', herramientas: '🛠️', otro: '📦'
         };
 
         container.innerHTML = `

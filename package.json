@@ -15,7 +15,8 @@
     "test:no-delete": "node tests/no-delete-verify.test.js",
     "test:pdf": "node tests/pdf.test.js",
     "test:invoice": "node tests/invoice-pdf.test.js",
-    "test:all": "npm run test && npm run test:api && npm run test:no-delete && npm run test:pdf && npm run test:invoice",
+    "test:catalog": "node tests/catalog-pdf.test.js",
+    "test:all": "npm run test && npm run test:api && npm run test:no-delete && npm run test:pdf && npm run test:invoice && npm run test:catalog",
     "start:py": "python backend/server.py"
   },
   "dependencies": {

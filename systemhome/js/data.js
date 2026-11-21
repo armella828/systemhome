@@ -323,6 +323,29 @@ const DB = {
     return { filename, bytes: blob.size };
   },
 
+  // Catálogo en PDF (endpoint público). category='all' descarga todo.
+  async fetchCatalogPdf(category = 'all', download = true) {
+    const params = new URLSearchParams({ download: '1' });
+    if (category && category !== 'all') params.set('category', category);
+    const resp = await fetch(`${this._baseUrl}/catalog/pdf?${params.toString()}`);
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.json()).error || ''; } catch (e) { /* cuerpo no JSON */ }
+      throw new Error(detail || `No se pudo generar el catálogo (HTTP ${resp.status})`);
+    }
+    const blob = await resp.blob();
+    if (blob.size < 100) throw new Error('El catálogo PDF está vacío');
+    const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+    if (signature[0] !== 0x25 || signature[1] !== 0x50 || signature[2] !== 0x44 || signature[3] !== 0x46) {
+      throw new Error('El servidor no devolvió un PDF válido');
+    }
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : 'catalogo-systemhome.pdf';
+    if (download) this._downloadBlob(blob, filename);
+    return { filename, bytes: blob.size };
+  },
+
   // Devuelve un File real para Web Share API. Nunca simula un envío.
   async getBudgetPdfFile(id) {
     if (typeof File === 'undefined') {

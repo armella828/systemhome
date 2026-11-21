@@ -1004,6 +1004,201 @@ function generateInvoicePdfBuffer(inv) {
   });
 }
 
+const CATALOG_CATEGORY_LABELS = {
+  camaras: 'Cámaras', camara: 'Cámaras',
+  alarmas: 'Alarmas', alarma: 'Alarmas',
+  dvr_nvr: 'Grabadores y NVR',
+  ac: 'Aire acondicionado',
+  cercas: 'Cercas eléctricas', cerca: 'Cercas eléctricas',
+  videoporteros: 'Video porteros', video: 'Video porteros',
+  control_acceso: 'Control de acceso',
+  redes: 'Redes', cableado: 'Cableado', cable: 'Cableado',
+  electricidad: 'Electricidad',
+  accesorios: 'Accesorios', accesorio: 'Accesorios',
+  herramientas: 'Herramientas', herramienta: 'Herramientas',
+  otro: 'Otros'
+};
+
+function catalogCategoryLabel(id) {
+  return CATALOG_CATEGORY_LABELS[id] || id || 'General';
+}
+
+// Las fotos se guardan como data URL en PostgreSQL; también se admite el
+// archivo local de backend/uploads como respaldo. No se descargan URLs
+// externas: el PDF debe generarse siempre, incluso sin Internet.
+function getCatalogImageBuffer(item) {
+  const raw = String(item?.imageUrl || '');
+  if (/^data:image\//i.test(raw)) {
+    const comma = raw.indexOf(',');
+    if (comma > 0) {
+      try {
+        const head = raw.slice(0, comma);
+        if (/;base64/i.test(head)) return Buffer.from(raw.slice(comma + 1), 'base64');
+        return Buffer.from(decodeURIComponent(raw.slice(comma + 1)), 'utf8');
+      } catch (e) { /* imagen inválida: se omite */ }
+    }
+  }
+  const rel = String(item?.imagePath || (raw.startsWith('/uploads/') ? raw.slice('/uploads/'.length) : ''));
+  if (rel && !/^https?:\/\//i.test(rel)) {
+    try {
+      const file = path.join(UPLOAD_DIR, path.normalize(rel).replace(/^([.][.][\\/])+/, ''));
+      if (file.startsWith(UPLOAD_DIR) && fs.existsSync(file)) return fs.readFileSync(file);
+    } catch (e) { /* se omite */ }
+  }
+  return null;
+}
+
+function renderCatalogPdf(doc, items, categoryLabel) {
+  const pageW = doc.page.width;
+  const left = 40;
+  const right = pageW - 40;
+  const contentW = right - left;
+  const bottomLimit = doc.page.height - 92;
+  const logoBuffer = getCompanyLogoBuffer();
+
+  function drawHeader() {
+    const bandH = 104;
+    const logoW = 84;
+    const logoH = 66;
+    doc.rect(0, 0, pageW, bandH).fill('#f8fafc');
+    if (logoBuffer) {
+      try {
+        doc.save();
+        doc.roundedRect(left, 14, logoW, logoH, 4).fill('#ffffff');
+        doc.image(logoBuffer, left + 4, 18, {
+          fit: [logoW - 8, logoH - 8], align: 'center', valign: 'center'
+        });
+        doc.restore();
+      } catch (e) { console.error('PDF logo error:', e.message); }
+    }
+    const textX = left + logoW + 14;
+    const textW = right - textX;
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#0b1f3a')
+      .text('SYSTEMHOME SECURITY', textX, 24, { width: textW, align: 'left' });
+    doc.font('Helvetica').fontSize(9).fillColor('#475569')
+      .text('Yacuiba, Bolivia', textX, 50, { width: textW, align: 'left' });
+    doc.moveTo(left, bandH - 4).lineTo(right, bandH - 4).strokeColor('#0e7490').lineWidth(2).stroke();
+    doc.fillColor('#0b1f3a').font('Helvetica');
+    doc.y = bandH + 12;
+  }
+
+  function drawFooter(pageNumber) {
+    doc.font('Helvetica').fontSize(7.5).fillColor('#64748b')
+      .text('SYSTEMHOME SECURITY · WhatsApp +591 64595762 · Yacuiba, Bolivia',
+        left, doc.page.height - 72, { width: contentW, align: 'center' });
+    doc.text(`Página ${pageNumber} · CATÁLOGO DE PRODUCTOS`,
+        left, doc.page.height - 58, { width: contentW, align: 'center' });
+  }
+
+  doc.on('pageAdded', () => {
+    const previous = doc.page.count - 2;
+    if (previous >= 0) {
+      doc.switchToPage(previous);
+      drawFooter(previous + 1);
+      doc.switchToPage(previous + 1);
+    }
+    drawHeader();
+  });
+
+  drawHeader();
+
+  const ensureSpace = (needed) => {
+    if (doc.y + needed > bottomLimit) doc.addPage();
+  };
+
+  ensureSpace(64);
+  doc.font('Helvetica-Bold').fontSize(16).fillColor('#0b1f3a')
+    .text('CATÁLOGO DE PRODUCTOS', left, doc.y, { width: contentW });
+  doc.font('Helvetica').fontSize(9).fillColor('#475569')
+    .text('Soluciones en seguridad electrónica, climatización, redes y telecomunicaciones.', { width: contentW });
+  const meta = [`Categoría: ${categoryLabel || 'Todas'}`, `${items.length} producto(s)`, `Generado: ${new Date().toLocaleDateString('es-PY')}`];
+  doc.fontSize(8.5).fillColor('#64748b').text(meta.join('   |   '), { width: contentW });
+  doc.moveDown(0.8);
+
+  const imgW = 72;
+  const imgH = 56;
+  const textX = left + imgW + 20;
+  const textW = contentW - imgW - 24;
+
+  items.forEach((item, index) => {
+    doc.font('Helvetica-Bold').fontSize(10);
+    const name = String(item.name || 'Producto');
+    const brand = [item.brand, item.model].filter(Boolean).join(' · ');
+    const description = String(item.description || '');
+    const features = String(item.features || '');
+    const nameH = doc.heightOfString(name, { width: textW });
+    doc.font('Helvetica').fontSize(8);
+    const brandH = brand ? doc.heightOfString(brand, { width: textW }) : 0;
+    const descH = description ? doc.heightOfString(description, { width: textW }) : 0;
+    doc.fontSize(7.5);
+    const featuresH = features ? doc.heightOfString(features, { width: textW }) : 0;
+    const rowH = Math.max(imgH, nameH + brandH + descH + featuresH + 28) + 10;
+
+    ensureSpace(rowH + 6);
+    const y = doc.y;
+    doc.roundedRect(left, y, contentW, rowH, 4).fill(index % 2 === 0 ? '#f8fafc' : '#ffffff');
+    doc.rect(left, y, 3, rowH).fill('#0e7490');
+
+    const imageBuffer = getCatalogImageBuffer(item);
+    if (imageBuffer) {
+      try {
+        doc.save();
+        doc.roundedRect(left + 10, y + 7, imgW, imgH, 3).fill('#ffffff');
+        doc.image(imageBuffer, left + 12, y + 9, {
+          fit: [imgW - 4, imgH - 4], align: 'center', valign: 'center'
+        });
+        doc.restore();
+      } catch (e) { /* imagen no compatible: se omite */ }
+    } else {
+      doc.roundedRect(left + 10, y + 7, imgW, imgH, 3).fill('#e2e8f0');
+      doc.font('Helvetica').fontSize(8).fillColor('#64748b')
+        .text(catalogCategoryLabel(item.category), left + 12, y + imgH / 2 + 2, { width: imgW - 4, align: 'center' });
+    }
+
+    let ty = y + 8;
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#0b1f3a')
+      .text(name, textX, ty, { width: textW });
+    ty += nameH + 2;
+    if (brand) {
+      doc.font('Helvetica').fontSize(8).fillColor('#64748b').text(brand, textX, ty, { width: textW });
+      ty += brandH + 2;
+    }
+    if (description) {
+      doc.font('Helvetica').fontSize(8).fillColor('#334155').text(description, textX, ty, { width: textW });
+      ty += descH + 2;
+    }
+    if (features) {
+      doc.font('Helvetica').fontSize(7.5).fillColor('#64748b').text(features, textX, ty, { width: textW });
+      ty += featuresH + 2;
+    }
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0e7490')
+      .text(`Bs. ${money(item.price)}`, textX, ty + 2, { width: textW - 120 });
+    const badge = item.stock > 0 ? `Disponible · Stock ${item.stock}` : 'Sin stock';
+    doc.font('Helvetica').fontSize(8).fillColor(item.stock > 0 ? '#15803d' : '#b91c1c')
+      .text(badge, right - 118, ty + 4, { width: 114, align: 'right' });
+
+    doc.y = y + rowH + 6;
+  });
+
+  drawFooter(doc.page.count);
+}
+
+function generateCatalogPdfBuffer(items, categoryLabel) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4', autoFirstPage: true, compress: false });
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      renderCatalogPdf(doc, items, categoryLabel);
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 function formatWorkOrder(w) {
   let obs = [];
   let mats = [];
@@ -2837,6 +3032,27 @@ async function normalizeInventoryImage(imageUrl) {
 app.get('/api/catalog', (req, res) => {
   const rows = db.prepare('SELECT * FROM inventory_items WHERE active = 1 AND show_in_catalog = 1 ORDER BY id DESC').all();
   res.json({ catalog: rows.map(formatInventoryItem) });
+});
+
+// Catálogo en PDF. Público, igual que /api/catalog. Acepta ?category= para
+// descargar solo una categoría y ?download=1 para forzar la descarga.
+app.get('/api/catalog/pdf', async (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM inventory_items WHERE active = 1 AND show_in_catalog = 1 ORDER BY id DESC').all();
+    const all = rows.map(formatInventoryItem);
+    const category = String(req.query.category || '').trim();
+    const items = category && category !== 'all' ? all.filter(i => i.category === category) : all;
+    const categoryLabel = category && category !== 'all' ? catalogCategoryLabel(category) : 'Todas';
+    const pdfBuffer = await generateCatalogPdfBuffer(items, categoryLabel);
+    const safeCategory = categoryLabel.replace(/[^a-zA-Z0-9áéíóúñüÁÉÍÓÚÑÜ-]/g, '').replace(/\s+/g, '-').toLowerCase() || 'todos';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename=catalogo-systemhome-${safeCategory}.pdf`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Error generando PDF de catálogo:', err);
+    res.status(500).json({ error: 'No se pudo generar el catálogo en PDF: ' + (err.message || 'error interno') });
+  }
 });
 
 app.get('/api/inventory', authMiddleware, (req, res) => {

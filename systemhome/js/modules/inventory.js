@@ -30,6 +30,7 @@ const InventoryModule = {
           <p class="module-subtitle">Administración de productos, precios en Bolivianos (Bs.), stock, fotos e integración con el portal de clientes</p>
         </div>
         <div class="module-actions">
+          <button class="btn btn-secondary" onclick="InventoryModule.downloadCatalogPdf()" title="Descargar catálogo en PDF">📄 Descargar PDF</button>
           <button class="btn btn-secondary" onclick="InventoryModule.refresh()" title="Recargar inventario">🔄 Actualizar</button>
           ${isAllowed ? `
             <button class="btn btn-primary" onclick="InventoryModule.openModal()" id="btnNewProduct">
@@ -66,6 +67,15 @@ const InventoryModule = {
   refresh() {
     this.renderTabContent();
     App.showNotification('Inventario actualizado', 'info');
+  },
+
+  async downloadCatalogPdf() {
+    try {
+      const result = await DB.fetchCatalogPdf('all', true);
+      App.showNotification(`Catálogo PDF descargado: ${result.filename}`, 'success');
+    } catch (err) {
+      App.showNotification(err.message || 'No se pudo descargar el catálogo en PDF', 'error');
+    }
   },
 
   renderTabContent() {
