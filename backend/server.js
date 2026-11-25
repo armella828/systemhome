@@ -3,12 +3,13 @@ const security = require('./security');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const PDFDocument = require('pdfkit');
 require('dotenv').config();
 
-const { db, initSchema, seedData, all, get, run } = require('./db');
+const { db, initSchema, seedData, all, get, run, isPostgres } = require('./db');
 const { isCloudinaryConfigured, uploadBase64, saveUploadedFile } = require('./cloudinary');
 const recovery = require('./auth-recovery');
 const mailer = require('./mailer');
@@ -3856,54 +3857,144 @@ app.get('/api/summary', authMiddleware, (req, res) => {
 const backupDir = path.join(__dirname, 'backups');
 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-// Ruta de la base de datos para backup
-const dbPathForBackup = process.env.DB_PATH 
-  ? path.resolve(process.env.DB_PATH) 
+// Ruta de la base de datos SQLite local (solo se usa en desarrollo).
+const dbPathForBackup = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
   : path.join(__dirname, 'database', 'systemhome.sqlite');
+
+function redactDatabaseTarget() {
+  const raw = process.env.DATABASE_URL || process.env.DB_PATH || 'desconocida';
+  return raw.replace(/:\/\/([^:@/]+)(:[^@/]*)?@/, '://***:***@');
+}
+
+function getBackupTables() {
+  const rows = isPostgres
+    ? all(`
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+      `)
+    : all(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`);
+  return rows
+    .map(r => r.name)
+    .filter(name => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
+}
+
+function getTableSchema(table) {
+  if (isPostgres) {
+    return all(`
+      SELECT column_name AS name, data_type AS type, is_nullable AS nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ?
+      ORDER BY ordinal_position
+    `, [table]);
+  }
+  return all(`PRAGMA table_info(${table})`).map(c => ({
+    name: c.name,
+    type: c.type || '',
+    nullable: c.notnull ? 'NO' : 'YES',
+    primaryKey: Boolean(c.pk)
+  }));
+}
 
 app.get('/api/backup', authMiddleware, requireRole(['admin']), (req, res) => {
   try {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const sqliteFilename = `systemhome-backup-${timestamp}.sqlite`;
     const jsonFilename = `systemhome-backup-${timestamp}.json`;
-    const sqliteFilePath = path.join(backupDir, sqliteFilename);
+    const manifestFilename = `manifest-${timestamp}.json`;
+    const sqliteFilename = `systemhome-backup-${timestamp}.sqlite`;
     const jsonFilePath = path.join(backupDir, jsonFilename);
+    const manifestFilePath = path.join(backupDir, manifestFilename);
+    const sqliteFilePath = path.join(backupDir, sqliteFilename);
 
-    // 1. Copia segura del archivo SQLite
-    fs.copyFileSync(dbPathForBackup, sqliteFilePath);
+    // 1. Volcado lógico de TODAS las tablas de la base de datos activa.
+    // Funciona igual con PostgreSQL (Render/Neon) que con SQLite local.
+    const tableNames = getBackupTables();
+    if (tableNames.length === 0) {
+      throw new Error('No se pudieron enumerar las tablas de la base de datos activa');
+    }
 
-    // 2. Volcado JSON completo de todas las tablas
-    const tables = [
-      'roles', 'permissions', 'role_permissions', 'users', 'clients', 'services',
-      'budgets', 'budget_items', 'technicians', 'work_orders', 'work_order_assignments',
-      'inventory_items', 'inventory_movements', 'maintenances', 'client_history',
-      'order_history', 'locations', 'requests', 'request_files', 'notifications',
-      'audit_logs', 'stock_alerts', 'maintenance_alerts', 'warranties', 'warranty_claims',
-      'sales', 'sale_items', 'payments', 'invoices'
-    ];
-
+    const warnings = [];
     const dataDump = {
       meta: {
         system: 'SYSTEMHOME Security',
-        version: '2.0.0',
+        version: '2.1.0',
         createdAt: new Date().toISOString(),
-        createdBy: req.user.username
+        createdBy: req.user.username,
+        database: isPostgres ? 'PostgreSQL' : 'SQLite',
+        databaseTarget: redactDatabaseTarget(),
+        format: 'json-logical-dump'
       },
-      tables: {}
+      schema: {},
+      tables: {},
+      counts: {}
     };
 
-    tables.forEach(t => {
-      try { dataDump.tables[t] = db.prepare(`SELECT * FROM ${t}`).all(); } catch (e) { dataDump.tables[t] = []; }
+    let totalRows = 0;
+    tableNames.forEach(table => {
+      try {
+        dataDump.schema[table] = getTableSchema(table);
+        const rows = all(`SELECT * FROM ${table}`);
+        dataDump.tables[table] = rows;
+        dataDump.counts[table] = rows.length;
+        totalRows += rows.length;
+      } catch (e) {
+        dataDump.schema[table] = [];
+        dataDump.tables[table] = [];
+        dataDump.counts[table] = 0;
+        warnings.push(`${table}: ${e.message}`);
+      }
     });
 
-    fs.writeFileSync(jsonFilePath, JSON.stringify(dataDump, null, 2), 'utf-8');
-    audit(req, 'backup_creado', 'backup', 'database', null, null, { sqlite: sqliteFilename, json: jsonFilename });
+    const jsonContent = JSON.stringify(dataDump, null, 2);
+    const sha256 = crypto.createHash('sha256').update(jsonContent).digest('hex');
+    fs.writeFileSync(jsonFilePath, jsonContent, 'utf-8');
+
+    // 2. Copia física del archivo SQLite solo cuando existe (desarrollo local).
+    // En Render no existe porque la base de datos es PostgreSQL: no es un error.
+    let sqliteFile = null;
+    if (!isPostgres && fs.existsSync(dbPathForBackup)) {
+      fs.copyFileSync(dbPathForBackup, sqliteFilePath);
+      sqliteFile = sqliteFilename;
+    }
+
+    const manifest = {
+      system: 'SYSTEMHOME Security',
+      createdAt: dataDump.meta.createdAt,
+      createdBy: req.user.username,
+      database: dataDump.meta.database,
+      databaseTarget: dataDump.meta.databaseTarget,
+      jsonFile: jsonFilename,
+      sqliteFile,
+      bytes: Buffer.byteLength(jsonContent, 'utf8'),
+      sha256,
+      tables: tableNames.length,
+      rows: totalRows,
+      warnings
+    };
+    fs.writeFileSync(manifestFilePath, JSON.stringify(manifest, null, 2), 'utf-8');
+
+    audit(req, 'backup_creado', 'backup', 'database', null, null, {
+      json: jsonFilename,
+      manifest: manifestFilename,
+      sqlite: sqliteFile,
+      tables: tableNames.length,
+      rows: totalRows,
+      sha256
+    });
 
     res.json({
       ok: true,
       message: 'Copia de seguridad creada correctamente',
-      sqliteFile: sqliteFilename,
       jsonFile: jsonFilename,
+      manifestFile: manifestFilename,
+      sqliteFile,
+      database: dataDump.meta.database,
+      tables: tableNames.length,
+      rows: totalRows,
+      sha256,
+      warnings,
       timestamp
     });
   } catch (error) {
@@ -3922,7 +4013,7 @@ app.get('/api/backup/list', authMiddleware, requireRole(['admin']), (req, res) =
         size: stat.size,
         sizeFormatted: (stat.size / 1024).toFixed(1) + ' KB',
         modified: stat.mtime.toISOString(),
-        type: f.endsWith('.sqlite') ? 'SQLite Database' : 'JSON Full Export'
+        type: f.startsWith('manifest-') ? 'Manifest SHA256' : (f.endsWith('.sqlite') ? 'SQLite Database' : 'JSON Full Export')
       };
     })
     .sort((a, b) => b.modified.localeCompare(a.modified));

@@ -20,7 +20,7 @@ const BackupModule = {
       <div class="module-header">
         <div>
           <h2>Copias de Seguridad (Backup del Sistema)</h2>
-          <p class="module-subtitle">Generación, descarga y resguardo seguro de bases de datos SQLite y volcados completos en JSON</p>
+          <p class="module-subtitle">Generación, descarga y resguardo seguro de un volcado JSON de PostgreSQL con manifiesto SHA256</p>
         </div>
         <div class="module-actions">
           <button class="btn btn-secondary" onclick="BackupModule.refresh()">🔄 Actualizar Lista</button>
@@ -36,7 +36,7 @@ const BackupModule = {
           <div>
             <h4 style="margin:0 0 0.3rem 0;">Seguridad y Resguardo Integral</h4>
             <p style="margin:0;color:#64748b;font-size:0.9rem;">
-              Cada copia de seguridad contiene el archivo SQLite físico de SYSTEMHOME y un volcado estructurado en JSON con todas las tablas (clientes, cotizaciones, órdenes, inventario, ventas, facturas, mantenimientos, auditoría).
+              Cada copia contiene un volcado JSON de todas las tablas de la base de datos activa (clientes, cotizaciones, órdenes, inventario, ventas, facturas, mantenimientos, auditoría e INTELLIGENCE) y un manifiesto con su hash SHA256. En desarrollo local también se incluye el archivo SQLite físico.
             </p>
           </div>
         </div>
@@ -122,7 +122,8 @@ const BackupModule = {
     setTimeout(() => {
       const res = DB.createBackup();
       if (res && res.ok) {
-        App.showNotification(`¡Copia de seguridad generada con éxito! Archivos: ${res.sqliteFile}`, 'success');
+        const files = [res.jsonFile, res.manifestFile, res.sqliteFile].filter(Boolean).join(', ');
+        App.showNotification(`¡Copia de seguridad generada con éxito! Archivos: ${files || 'volcado JSON'}`, 'success');
         this.renderBackupList();
       } else {
         App.showNotification(res?.error || 'Error al generar la copia de seguridad', 'error');

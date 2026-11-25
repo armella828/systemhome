@@ -24,6 +24,12 @@ Corrección aplicada:
 
 ## Respaldos
 
+### Desde el panel del sistema (botón «Crear Nueva Copia de Seguridad»)
+
+El endpoint `GET /api/backup` (solo administradores) genera un **volcado lógico en JSON de todas las tablas** de la base de datos activa y un manifiesto `manifest-*.json` con hash SHA256, cantidad de tablas y filas. Funciona igual con PostgreSQL de Render/Neon que con SQLite local; la copia física del archivo SQLite solo se realiza cuando ese archivo existe (desarrollo). Ya no se intenta copiar `backend/database/systemhome.sqlite` en producción.
+
+Después de generar el respaldo, **descargue el JSON y el manifiesto de inmediato**: el filesystem de Render es efímero y los archivos en `backend/backups` desaparecen en un redeploy. Para respaldos programados y cifrados fuera de Render se mantiene `npm run backup` (`pg_dump` + AES-256-CBC), que requiere `BACKUP_ENCRYPTION_KEY` y el binario `pg_dump`.
+
 ### Antes de cualquier cambio en producción
 
 1. Conocer la BD real (Render Shell):
